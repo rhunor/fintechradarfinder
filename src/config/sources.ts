@@ -48,8 +48,27 @@ export interface SourceConfig {
   note?: string;
 }
 
-/** Newswires and regulatory sources break deal news first — poll them hardest. */
+/** Newswires break deal news first — poll them hardest. */
 const WIRE_INTERVAL = 60;
+
+/**
+ * SEC EDGAR gets its own, slower cadence.
+ *
+ * MEASURED FROM VERCEL: the browse-edgar CGI intermittently applies a ~10
+ * second server-side delay — repeated samples came back at 10,070-10,128ms,
+ * far too consistent to be network latency, interleaved with sub-second
+ * responses. Roughly three calls in five are throttled.
+ *
+ * Because feeds are fetched in parallel, one 10s response makes the WHOLE
+ * cycle 10s of wall time, and Vercel bills Provisioned Memory by wall time.
+ * Polling SEC every 60s projects to ~147 GB-hours a month, 41% of the Hobby
+ * allowance, for two sources. At 180s it is ~54 GB-hours, 15%.
+ *
+ * The tradeoff is up to two extra minutes of latency on SEC filings. That is
+ * acceptable: an 8-K is the legal disclosure of a deal that a newswire has
+ * usually already announced, and the wires are still polled every 60s.
+ */
+const SEC_INTERVAL = 180;
 /** Media sites republish with a lag; 3 minutes is plenty and saves CPU. */
 const MEDIA_INTERVAL = 180;
 
@@ -139,10 +158,11 @@ export const SOURCES: readonly SourceConfig[] = [
     url: "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K&company=&dateb=&owner=include&count=40&output=atom",
     type: "sec",
     regionHint: "US",
-    minIntervalSeconds: WIRE_INTERVAL,
+    minIntervalSeconds: SEC_INTERVAL,
     conditionalGet: "body-hash",
     enabled: true,
-    timeoutMs: 9_000,
+    // Must clear EDGAR's ~10s throttle. 9s failed every throttled request.
+    timeoutMs: 15_000,
     note: "Prefilter keeps only Item 1.01 / 2.01 with acquisition or merger language.",
   },
   {
@@ -151,10 +171,10 @@ export const SOURCES: readonly SourceConfig[] = [
     url: "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=D&company=&dateb=&owner=include&count=40&output=atom",
     type: "sec",
     regionHint: "US",
-    minIntervalSeconds: WIRE_INTERVAL,
+    minIntervalSeconds: SEC_INTERVAL,
     conditionalGet: "body-hash",
     enabled: true,
-    timeoutMs: 9_000,
+    timeoutMs: 15_000,
     note: "High volume, and an entry carries only a company name. Name/SIC prefiltered before the AI.",
   },
 

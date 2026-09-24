@@ -310,7 +310,7 @@ days, and Telegram update records after 1 day. Real usage is a few MB.
 **Newswires (60s)** — PR Newswire ×4 (fintech, M&A, venture capital, banking),
 GlobeNewswire ×3 (M&A, fintech, financing agreements)
 
-**Regulatory (60s)** — SEC EDGAR 8-K, SEC EDGAR Form D
+**Regulatory (180s)** — SEC EDGAR 8-K, SEC EDGAR Form D
 
 **Trade press (180s)** — TechCrunch Fintech, Crunchbase News, Finextra, PYMNTS,
 Crowdfund Insider, Banking Dive, Payments Dive, Tearsheet
@@ -337,6 +337,34 @@ GlobeNewswire and PR Newswire cover much of the same ground, but not all of it.
 **A note on BetaKit**: its own `/category/fintech/feed/` and
 `/category/funding/feed/` are both abandoned — newest items date from 2024. The
 main feed is live, so we poll that and filter on each item's categories.
+
+### Why SEC is polled every 180s, not 60s
+
+EDGAR's `browse-edgar` CGI intermittently applies a **~10 second server-side
+delay**. Measured from Vercel, repeated samples returned in 10,070-10,128ms —
+far too consistent to be network latency — interleaved with sub-second
+responses. Roughly three calls in five are throttled. The same behaviour appears
+from a laptop, so it is the endpoint, not Vercel's IP ranges.
+
+Feeds are fetched in parallel, so one 10s response makes the entire cycle 10s of
+wall time, and Vercel bills Provisioned Memory by wall time:
+
+| SEC interval | Avg cycle | Projected | Share of 360 GB-h |
+|---|---|---|---|
+| 60s | 6.12s | 147 GB-h | 41% |
+| **180s** | **2.24s** | **54 GB-h** | **15%** |
+| 300s | 1.46s | 35 GB-h | 10% |
+
+Two sources were going to consume 41% of the monthly allowance. At 180s they
+cost 15%. The price is up to two extra minutes of latency on SEC filings, which
+is acceptable — an 8-K is the legal disclosure of a deal the wires have usually
+already reported, and the wires are still polled every 60s.
+
+If SEC latency matters more to you than budget headroom, `SEC_INTERVAL` in
+`src/config/sources.ts` is a one-line change. A better long-term fix is
+`efts.sec.gov/LATEST/search-index`, SEC's full-text search API, which returned in
+2.5s and supports filtering by form type — but it is a JSON search API rather
+than an Atom feed, so it needs its own adapter.
 
 ### SEC Form D
 
