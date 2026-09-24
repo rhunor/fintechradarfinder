@@ -18,9 +18,24 @@ export const maxDuration = 60;
 export async function GET(request: Request): Promise<Response> {
   if (!isAuthorized(request)) return unauthorized();
 
+  const params = new URL(request.url).searchParams;
+
+  // ?timeout=20000 overrides every source's timeout for this call only.
+  // Diagnostic: it distinguishes "this origin is slow from Vercel" from "this
+  // origin is refusing Vercel", which look identical in the normal output.
+  const timeoutOverride = Number(params.get("timeout"));
+  const sources =
+    Number.isFinite(timeoutOverride) && timeoutOverride > 0
+      ? ENABLED_SOURCES.map((s) => ({ ...s, timeoutMs: Math.min(timeoutOverride, 45_000) }))
+      : ENABLED_SOURCES;
+
+  // ?only=sec-8k,sec-form-d narrows the check to specific sources.
+  const only = params.get("only")?.split(",").map((s) => s.trim()).filter(Boolean);
+  const selected = only?.length ? sources.filter((s) => only.includes(s.id)) : sources;
+
   const started = Date.now();
   // No stored validators: force a full fetch so item counts are real.
-  const results = await fetchAllSources(ENABLED_SOURCES);
+  const results = await fetchAllSources(selected);
 
   const sources = results
     .map(({ source, outcome }) => {
@@ -71,7 +86,7 @@ export async function GET(request: Request): Promise<Response> {
     {
       checked_at: new Date().toISOString(),
       region: process.env.VERCEL_REGION ?? "local",
-      total: sources.length,
+      total: selected.length,
       ok: sources.filter((s) => s.status !== "error").length,
       failed: failed.length,
       duration_ms: Date.now() - started,
