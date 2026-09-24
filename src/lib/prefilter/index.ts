@@ -11,16 +11,30 @@
  */
 
 import {
+  EXPANSION_TERMS,
   FINTECH_NAME_HINTS,
   FUNDING_TERMS,
   FUND_VEHICLE_PATTERNS,
+  LAUNCH_TERMS,
   MA_TERMS,
   NEGATIVE_TERMS,
+  PARTNERSHIP_TERMS,
+  REBRAND_TERMS,
   SEC_8K_ITEM_CODES,
 } from "@/config/keywords";
+import { isEventEnabled } from "@/config/events";
 import type { RawItem } from "@/lib/feeds/types";
+import type { DealEvent } from "@/lib/store/schema";
 
-export type PrefilterHit = "funding" | "acquisition" | "sec-8k" | "sec-form-d";
+export type PrefilterHit =
+  | "funding"
+  | "acquisition"
+  | "launch"
+  | "expansion"
+  | "rebrand"
+  | "partnership"
+  | "sec-8k"
+  | "sec-form-d";
 
 export interface PrefilterResult {
   pass: boolean;
@@ -111,6 +125,19 @@ function prefilterFormD(name: string): PrefilterResult {
  * Strip the SEC boilerplate wrapper from a filing title so the name heuristic
  * sees "Acme Payments Inc" rather than "D - Acme Payments Inc (0001234567) (Filer)".
  */
+/**
+ * The news-item event families, in priority order, typed as DealEvent so the
+ * enabled-check and the classifier agree on the same set of names.
+ */
+const EVENT_FAMILIES: readonly { hit: DealEvent; terms: readonly RegExp[] }[] = [
+  { hit: "funding", terms: FUNDING_TERMS },
+  { hit: "acquisition", terms: MA_TERMS },
+  { hit: "launch", terms: LAUNCH_TERMS },
+  { hit: "expansion", terms: EXPANSION_TERMS },
+  { hit: "rebrand", terms: REBRAND_TERMS },
+  { hit: "partnership", terms: PARTNERSHIP_TERMS },
+];
+
 export function secFilerName(title: string): string {
   return title
     .replace(/^[A-Z0-9/-]+\s+-\s+/, "")
@@ -144,41 +171,55 @@ export function prefilter(item: RawItem): PrefilterResult {
     return { pass: false, hit: null, reason: `SEC form ${form} is not tracked`, strong: false };
   }
 
-  // A negative term vetoes the item even if deal words are present. These are
-  // the recurring false positives: dividend notices, market research reports
-  // and "the M&A market is projected to grow" think-pieces.
+  // Event families, in priority order. Deals come first: when a headline says
+  // a company "launches a card and raises $20M", the funding is the story.
+  // Disabling an event in src/config/events.ts removes it from this list, so
+  // its items stop reaching the model at all rather than being classified and
+  // then thrown away.
+  const families = EVENT_FAMILIES.filter((family) => isEventEnabled(family.hit));
+
+  // A match in the TITLE outranks one in the body, because a headline states
+  // the story's actual subject while the body often mentions other companies'
+  // news in passing.
+  let titleHit: { hit: PrefilterHit; pattern: RegExp } | null = null;
+  let bodyHit: { hit: PrefilterHit; pattern: RegExp } | null = null;
+
+  for (const family of families) {
+    if (!titleHit) {
+      const inTitle = matches(family.terms, item.title);
+      if (inTitle) titleHit = { hit: family.hit, pattern: inTitle };
+    }
+    if (!bodyHit) {
+      const inBody = matches(family.terms, haystack);
+      if (inBody) bodyHit = { hit: family.hit, pattern: inBody };
+    }
+  }
+
+  const match = titleHit ?? bodyHit;
+  if (!match) {
+    return { pass: false, hit: null, reason: "no tracked event language", strong: false };
+  }
+
+  // A negative term vetoes the item even when event words are present. These
+  // are the recurring false positives: dividend notices, market research
+  // reports and "the M&A market is projected to grow" think-pieces.
   const negative = matches(NEGATIVE_TERMS, haystack);
-
-  const funding = matches(FUNDING_TERMS, haystack);
-  const ma = matches(MA_TERMS, haystack);
-
-  if (!funding && !ma) {
-    return { pass: false, hit: null, reason: "no funding or M&A language", strong: false };
-  }
-
   if (negative) {
-    return {
-      pass: false,
-      hit: null,
-      reason: `vetoed by ${negative.source}`,
-      strong: false,
-    };
+    return { pass: false, hit: null, reason: `vetoed by ${negative.source}`, strong: false };
   }
-
-  // Prefer whichever family matched in the TITLE, since a headline states the
-  // story's actual subject while the body may merely mention other deals.
-  const titleFunding = matches(FUNDING_TERMS, item.title);
-  const titleMa = matches(MA_TERMS, item.title);
-
-  const hit: PrefilterHit = titleMa ? "acquisition" : titleFunding ? "funding" : ma ? "acquisition" : "funding";
-  const matched = titleMa ?? titleFunding ?? ma ?? funding;
 
   return {
     pass: true,
-    hit,
-    reason: `matched ${matched?.source ?? "unknown"}`,
-    // "Strong" means the headline itself names a deal AND carries a money
-    // figure — enough to alert on unverified if the AI is offline.
-    strong: Boolean((titleFunding ?? titleMa) && /\$\s?\d|\b\d+(\.\d+)?\s*(m|bn|b|million|billion)\b/i.test(item.title)),
+    hit: match.hit,
+    reason: `matched ${match.pattern.source}`,
+    // "Strong" means the headline itself names a DEAL and carries a money
+    // figure — enough to alert unverified if the AI is offline. Deliberately
+    // limited to funding and acquisitions: no launch or partnership is worth
+    // an unverified alert.
+    strong: Boolean(
+      titleHit &&
+        (titleHit.hit === "funding" || titleHit.hit === "acquisition") &&
+        /\$\s?\d|\b\d+(\.\d+)?\s*(m|bn|b|million|billion)\b/i.test(item.title),
+    ),
   };
 }

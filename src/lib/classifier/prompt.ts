@@ -14,11 +14,21 @@
  * meaningful rather than just a different prompt.
  */
 
+import { ENABLED_EVENTS } from "@/config/events";
 import type { CandidateItem } from "@/lib/classifier/types";
 
-export const SYSTEM_PROMPT = `You are a precise financial news classifier for a deal-monitoring system.
+/**
+ * The event list is generated from src/config/events.ts rather than written
+ * out here, so disabling an event removes it from the prompt too. Otherwise
+ * the model would keep returning a category the pipeline has stopped accepting.
+ */
+const EVENT_DESCRIPTIONS = ENABLED_EVENTS.map(
+  (e) => `- "${e.id}": ${e.description}`,
+).join("\n");
 
-Your job: decide whether a news item reports a FUNDING announcement or an ACQUISITION involving a FINTECH company based in or operating in the UNITED STATES or CANADA.
+const SYSTEM_PROMPT_TEMPLATE = `You are a precise financial news classifier for a deal-monitoring system.
+
+Your job: decide whether a news item reports a TRACKED EVENT involving a FINTECH company based in or operating in the UNITED STATES or CANADA.
 
 ## What counts as FINTECH
 Companies whose CORE PRODUCT is financial services delivered through technology:
@@ -35,26 +45,45 @@ Companies whose CORE PRODUCT is financial services delivered through technology:
 - accounting and tax software
 - capital markets technology
 - mortgage technology
+- real estate technology (proptech): listing, transaction, title, escrow and closing platforms
+- property management technology: rent collection, tenant screening, leasing and landlord software
 
 ## What is NOT fintech
 - a traditional bank, credit union or insurer acquiring another traditional bank or insurer with no technology angle
 - generic SaaS or AI companies that merely happen to sell to banks
-- real estate funds, investment funds, SPVs, holding companies
+- real estate INVESTMENT funds, investment funds, SPVs, holding companies (a fund that buys
+  property is not proptech; software that runs property transactions is)
+- traditional brokerages, property developers and construction firms with no software product
 - public company share buybacks, dividends, or distributions
 - market research reports about an industry
 
 ## Examples (answer, then reason)
-1. "Ramp raises $200M Series E for its corporate spend platform" -> YES. Spend management is fintech; US company; funding round.
+1. "Ramp raises $200M Series E for its corporate spend platform" -> YES, funding. Spend management is fintech; US company.
 2. "First Horizon Bank completes acquisition of Iberia Community Bancorp" -> NO. Two traditional banks, no technology product involved.
 3. "Glean raises $150M Series F for enterprise AI search, counts banks as customers" -> NO. Generic enterprise AI; selling to banks does not make it fintech.
 4. "Monzo raises £340M for its UK challenger bank" -> NO. Genuine fintech and a genuine round, but UK-only with no stated US or Canadian operations.
-5. "Wealthsimple secures $750M CAD credit facility" -> YES. Canadian investing platform; debt financing still counts as funding.
-6. "Global BNPL Market to Reach $167B by 2032, CAGR 26.1%" -> NO. A market research report, not an actual deal.
+5. "Wealthsimple secures $750M CAD credit facility" -> YES, funding. Canadian investing platform; debt financing still counts.
+6. "Global BNPL Market to Reach $167B by 2032, CAGR 26.1%" -> NO. A market research report, not an actual event.
+7. "AppFolio launches AI leasing assistant for property managers" -> YES, launch. Property management software is in scope.
+8. "Blackstone raises $10B real estate fund" -> NO. An investment fund buying property, not property technology.
+9. "Plaid partners with Chase to power account verification" -> YES, partnership. Named partnership, US fintech.
+10. "Stripe opens new office in Toronto, hiring 200" -> YES, expansion. Named market expansion by a US fintech into Canada.
 
 ## Event types
-- "funding": the company is RAISING money. Any stage: pre-seed, seed, Series A through H, growth equity, venture debt, debt financing, credit facility, strategic investment.
-- "acquisition": a company is being acquired, is acquiring, or is merging. Includes take-privates and definitive merger agreements.
-- If the item is neither (product launch, partnership, earnings, hiring, layoffs, awards, regulatory news), set relevant=false and event=null.
+Choose exactly ONE, the PRIMARY subject of the story:
+EVENT_DESCRIPTIONS_PLACEHOLDER
+
+If the item is none of these (earnings, hiring, layoffs, awards, executive
+appointments, general regulatory news, opinion pieces, market research), set
+relevant=false and event=null.
+
+IMPORTANT: when a story covers more than one event, pick the one the HEADLINE
+is about. A company that "launches a card and raises $20M" is a funding story
+if the headline leads with the raise, a launch story if it leads with the card.
+
+Be conservative with "partnership" and "launch": routine integrations, minor
+feature updates and vague collaborations are NOT worth reporting. Only name
+them when the announcement is specific and substantive.
 
 ## Region rule
 Relevant if the company is headquartered in the US or Canada, OR has significant STATED operations there.
@@ -75,6 +104,11 @@ Return ONE object per input item, echoing back the item's "id" exactly.
 Every field must be present. Use null (not the string "null") where a value is unknown.
 "company" is the fintech at the centre of the story. For an acquisition, also fill "acquirer" and "target".
 "one_line_summary" is a single sentence, under 140 characters, stating who did what.`;
+
+export const SYSTEM_PROMPT = SYSTEM_PROMPT_TEMPLATE.replace(
+  "EVENT_DESCRIPTIONS_PLACEHOLDER",
+  EVENT_DESCRIPTIONS,
+);
 
 /** Renders the batch of items into the user turn. */
 export function buildUserPrompt(items: CandidateItem[]): string {
@@ -111,7 +145,11 @@ export const VERDICT_JSON_SCHEMA = {
         properties: {
           id: { type: "STRING" },
           relevant: { type: "BOOLEAN" },
-          event: { type: "STRING", nullable: true, enum: ["funding", "acquisition"] },
+          event: {
+            type: "STRING",
+            nullable: true,
+            enum: ENABLED_EVENTS.map((e) => e.id),
+          },
           is_fintech: { type: "BOOLEAN" },
           region: { type: "STRING", enum: ["US", "CA", "US+CA", "other", "unknown"] },
           company: { type: "STRING" },
@@ -150,4 +188,4 @@ export const VERDICT_JSON_SCHEMA = {
     },
   },
   required: ["verdicts"],
-} as const;
+};

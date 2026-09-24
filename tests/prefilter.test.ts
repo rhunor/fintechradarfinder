@@ -52,7 +52,7 @@ describe("prefilter: substring false positives", () => {
   // The first version of this filter used substring matching and every one of
   // these slipped through.
   it.each([
-    ["background check startup launches new product", "round inside background"],
+    ["a background check on the new hire", "round inside background"],
     ["company seeded its database with test records", "seed inside seeded"],
     ["buysides are watching the market closely", "buys inside buysides"],
   ])("rejects %s (%s)", (title) => {
@@ -95,11 +95,23 @@ describe("prefilter: negative vetoes", () => {
   });
 });
 
-describe("prefilter: items with no deal language at all", () => {
-  it("rejects a product launch", () => {
-    const r = prefilter(item({ title: "Stripe launches new billing dashboard" }));
+describe("prefilter: items with no tracked event at all", () => {
+  it.each([
+    "Stripe reports fourth quarter earnings",
+    "Acme Pay names three new board members",
+    "Fintech conference agenda announced for spring",
+  ])("rejects: %s", (title) => {
+    const r = prefilter(item({ title }));
     expect(r.pass).toBe(false);
-    expect(r.reason).toBe("no funding or M&A language");
+    expect(r.reason).toBe("no tracked event language");
+  });
+
+  it("now PASSES a product launch, which is a tracked event", () => {
+    // Scope was widened from deals to notable company news: launches,
+    // expansions, rebrands and partnerships are reported too.
+    const r = prefilter(item({ title: "Stripe launches new billing dashboard" }));
+    expect(r.pass).toBe(true);
+    expect(r.hit).toBe("launch");
   });
 });
 
@@ -214,8 +226,10 @@ describe("prefilter: only the lede is read", () => {
   it("ignores deal language buried far below the opening paragraphs", () => {
     // BetaKit and other WordPress feeds ship the whole article, including
     // "related posts" trailers that name unrelated funding rounds.
-    const buried = `${"Padding sentence about a product launch. ".repeat(60)}Separately, Acme raises $25M Series B.`;
-    expect(prefilter(item({ title: "Company redesigns its mobile app", summary: buried })).pass).toBe(
+    // Padding must contain no tracked-event language of its own, or the test
+    // proves nothing about where in the body we looked.
+    const buried = `${"The interface uses a calmer colour palette. ".repeat(60)}Separately, Acme raises $25M Series B.`;
+    expect(prefilter(item({ title: "A calmer look for the mobile app", summary: buried })).pass).toBe(
       false,
     );
   });

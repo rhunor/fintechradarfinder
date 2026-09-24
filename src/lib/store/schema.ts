@@ -63,7 +63,21 @@ export interface CandidateDoc {
   secFormType?: string;
 }
 
-export type DealEvent = "funding" | "acquisition";
+/**
+ * The event types we alert on.
+ *
+ * funding and acquisition are the original deal events. The rest were added
+ * later to widen coverage from "deals" to "notable company news". They are far
+ * more common than deals, so they carry their own prefilter terms and are
+ * easier to disable individually in src/config/events.ts.
+ */
+export type DealEvent =
+  | "funding"
+  | "acquisition"
+  | "launch"
+  | "expansion"
+  | "rebrand"
+  | "partnership";
 
 /** One source that reported a deal. A deal can be reported by several. */
 export interface DealSource {

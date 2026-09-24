@@ -199,6 +199,67 @@ usage projection well inside every limit.
 
 ---
 
+## Publishing to a public channel
+
+By default alerts go to your DM. To publish them to a channel instead:
+
+1. In Telegram, create a channel (public or private).
+2. Add `@your_bot` as an **administrator** with **Post Messages** permission.
+   Without admin rights the bot cannot post and alerts fail silently.
+3. Get the channel id. For a public channel use `@channelname`. For a private
+   one, forward any channel message to [@userinfobot](https://t.me/userinfobot),
+   which reports the numeric id (it starts with `-100`).
+4. Set `TELEGRAM_CHANNEL_ID` in Vercel and redeploy.
+
+Verify the bot really can post before relying on it:
+
+```bash
+curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getChatMember?chat_id=$TELEGRAM_CHANNEL_ID&user_id=$BOT_USER_ID"
+# expect: "status":"administrator","can_post_messages":true
+```
+
+**What goes where.** Deal alerts go to the channel. Health warnings, the daily
+summary and every bot reply stay in your private DM — subscribers should not see
+that a feed is down, and must not be able to run `/pause`.
+
+Two deliberate behaviours:
+
+- Once a channel is set, your DM stops receiving alert copies. That DM is where
+  operational messages live, and duplicating a busy feed into it buries them.
+  Set `ALSO_DM_ALERTS=true` if you want both.
+- **Unverified alerts are never published.** When the AI is offline the agent
+  falls back to keyword-only matches labelled "⚠️ UNVERIFIED". Publishing a
+  guess to an audience is worse than publishing nothing, so those go to your DM
+  only.
+
+## Event types
+
+The radar reports six event types, configured in `src/config/events.ts`:
+
+| Event | Confidence floor | Repeat window |
+|---|---|---|
+| 💰 funding | 0.70 | 72h |
+| 🤝 acquisition | 0.70 | 72h |
+| 🚀 launch | 0.75 | 168h |
+| 🌐 expansion | 0.75 | 168h |
+| 🏷️ rebrand | 0.75 | 168h |
+| 🔗 partnership | 0.80 | 168h |
+
+Each carries its own confidence floor because the categories differ in volume
+and value: a false positive on a partnership is noise, while a missed funding
+round is a real loss. Launches and partnerships also get a longer repeat window,
+because the same announcement is recycled through trade press for days.
+
+Turning a category off is a one-line `enabled: false` in that file. It is
+removed from the prefilter, the prompt and the classifier's allowed values in
+one go, so its items stop reaching the model rather than being classified and
+then discarded.
+
+Widening scope from deals to all six events raised the prefilter pass rate from
+**16% to 46%** of items on live feeds. Most of that extra volume is absorbed by
+the classifier rather than reaching you — AI cost is roughly 10-16 requests a
+day against a 900 limit — but it is the number to watch if alerts get noisy.
+
 ## Bot commands
 
 | Command | What it shows |

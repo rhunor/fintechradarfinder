@@ -25,7 +25,7 @@ export interface CandidateItem {
 export const VerdictSchema = z.object({
   id: z.string(),
   relevant: z.boolean(),
-  event: z.enum(["funding", "acquisition"]).nullable(),
+  event: z.enum(["funding", "acquisition", "launch", "expansion", "rebrand", "partnership"]).nullable(),
   is_fintech: z.boolean(),
   region: z.enum(["US", "CA", "US+CA", "other", "unknown"]),
   company: z.string(),
@@ -54,7 +54,10 @@ export const VerdictListSchema = z.object({
  * means the rest of the app only ever deals with `string | null`.
  */
 export const LenientVerdictSchema = VerdictSchema.extend({
-  event: z.preprocess(emptyToNull, z.enum(["funding", "acquisition"]).nullable()),
+  event: z.preprocess(
+    emptyToNull,
+    z.enum(["funding", "acquisition", "launch", "expansion", "rebrand", "partnership"]).nullable(),
+  ),
   fintech_subsector: z.preprocess(emptyToNull, z.string().nullable()),
   amount: z.preprocess(emptyToNull, z.string().nullable()),
   currency: z.preprocess(emptyToNull, z.string().nullable()),

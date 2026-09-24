@@ -54,6 +54,60 @@ export const MA_TERMS: readonly RegExp[] = [
   /\bcombin(e|es|ing|ation) with\b/i,
 ];
 
+/** Product and company launches. */
+export const LAUNCH_TERMS: readonly RegExp[] = [
+  /\blaunch(es|ed|ing)?\b/i,
+  /\bunveil(s|ed|ing)?\b/i,
+  /\bintroduc(e|es|ed|ing)\b/i,
+  /\brolls? out\b/i,
+  /\brolled out\b/i,
+  /\bdebut(s|ed|ing)?\b/i,
+  /\bgoes live\b/i,
+  /\bnow available\b/i,
+  /\bout of stealth\b/i,
+  /\bemerges from stealth\b/i,
+  /\bgeneral availability\b/i,
+  /\bbeta (launch|release)\b/i,
+];
+
+/** Geographic or market expansion. */
+export const EXPANSION_TERMS: readonly RegExp[] = [
+  /\bexpand(s|ed|ing)?\b/i,
+  /\bexpansion\b/i,
+  /\benters? the\b.{0,24}\bmarket\b/i,
+  /\bentry into\b/i,
+  /\bnow (available|live) in\b/i,
+  /\bopens? (a |its )?(new )?(office|hub|headquarters)\b/i,
+  /\b(secures?|receives?|granted|obtains?)\b.{0,30}\b(licen[cs]e|charter|approval|authoriz)/i,
+  /\bgoes international\b/i,
+  /\bcross-border expansion\b/i,
+];
+
+/** Renaming and repositioning. */
+export const REBRAND_TERMS: readonly RegExp[] = [
+  /\brebrand(s|ed|ing)?\b/i,
+  /\brenam(e|es|ed|ing)\b/i,
+  /\bnew (name|brand|identity)\b/i,
+  /\bchanges? its name\b/i,
+  /\bnow known as\b/i,
+  /\bwill be known as\b/i,
+  /\bunder a new brand\b/i,
+];
+
+/** Partnerships, integrations and distribution deals. */
+export const PARTNERSHIP_TERMS: readonly RegExp[] = [
+  /\bpartner(s|ed|ing|ship)\b/i,
+  /\bteams? up with\b/i,
+  /\bcollaborat(e|es|ed|ion)\b/i,
+  /\bjoins? forces\b/i,
+  /\balliance\b/i,
+  /\bintegrat(e|es|ed|ion) with\b/i,
+  /\bselects?\b.{0,30}\bto power\b/i,
+  /\bchooses\b.{0,30}\bto power\b/i,
+  /\bdistribution agreement\b/i,
+  /\bstrategic partnership\b/i,
+];
+
 /**
  * Terms that almost always mean "not a deal", used to veto an otherwise
  * matching item. These are the recurring false positives from real feeds:
@@ -103,6 +157,16 @@ export const FINTECH_NAME_HINTS: readonly RegExp[] = [
   /\btrading\b/i,
   /\bbroker(age)?\b/i,
   /\bcard(s)?\b/i,
+  // Property and real estate technology, which counts as fintech here.
+  /\bproptech\b/i,
+  /\brealty\b/i,
+  /\breal\s?estate\b/i,
+  /\bproperty\b/i,
+  /\brent(al|tech)?\b/i,
+  /\bescrow\b/i,
+  /\btitle\b/i,
+  /\bappraisal\b/i,
+  /\blease\b/i,
 ];
 
 /**
@@ -121,7 +185,9 @@ export const FUND_VEHICLE_PATTERNS: readonly RegExp[] = [
   /\bspv\b/i,
   /\bopportunit(y|ies)\b/i,
   /\bholdings? (i|ii|iii|\d+)\b/i,
-  /\breal estate\b/i,
+  // Narrowed: "real estate" alone would veto legitimate property technology
+  // companies, which now count as fintech here. Only the vehicle shapes.
+  /\breal estate (fund|partners|holdings|trust|income|opportunit|invest)/i,
   /\bequity (fund|partners)\b/i,
 ];
 

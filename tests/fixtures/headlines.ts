@@ -31,7 +31,7 @@ export interface HeadlineFixture {
   shouldPrefilter: boolean;
   /** Why, so a failing test explains itself. */
   rationale: string;
-  expectedEvent?: "funding" | "acquisition";
+  expectedEvent?: "funding" | "acquisition" | "launch" | "expansion" | "rebrand" | "partnership";
   expectedRegion?: "US" | "CA" | "US+CA" | "other";
 }
 
@@ -155,6 +155,65 @@ export const HEADLINE_FIXTURES: readonly HeadlineFixture[] = [
     // both "merger" and "funding", and there is no reason to pay for it.
     shouldPrefilter: false,
     rationale: "Market research report. Mentions deal words but reports no actual deal.",
+  },
+  // ---------------- widened scope: events beyond deals ----------------
+  {
+    id: "fx-11",
+    title: "AppFolio launches AI leasing assistant for property managers",
+    summary:
+      "AppFolio, the Santa Barbara-based property management software company, today launched an AI leasing assistant that answers renter enquiries and schedules showings automatically for its US property manager customers.",
+    sourceName: "PR Newswire",
+    shouldAlert: true,
+    shouldPrefilter: true,
+    rationale: "Property management technology now counts as fintech, and this is a substantive product launch.",
+    expectedEvent: "launch",
+    expectedRegion: "US",
+  },
+  {
+    id: "fx-12",
+    title: "Plaid partners with Chase to power account verification",
+    summary:
+      "Plaid announced a partnership with JPMorgan Chase under which Plaid will power account verification for Chase customers across the United States, replacing screen scraping with a direct API connection.",
+    sourceName: "Finextra",
+    shouldAlert: true,
+    shouldPrefilter: true,
+    rationale: "Named, substantive partnership between two US financial companies, one a fintech.",
+    expectedEvent: "partnership",
+    expectedRegion: "US",
+  },
+  {
+    id: "fx-13",
+    title: "Wise expands to Canada with new Toronto office and local licence",
+    summary:
+      "Wise has obtained a money services business licence in Canada and opened a Toronto office, allowing Canadian customers to hold and send money in 40 currencies. The company plans to hire 150 staff locally.",
+    sourceName: "BetaKit",
+    shouldAlert: true,
+    shouldPrefilter: true,
+    rationale: "Concrete market expansion into Canada with a licence and an office, by a fintech.",
+    expectedEvent: "expansion",
+    expectedRegion: "CA",
+  },
+  {
+    id: "fx-14",
+    title: "Blackstone raises $10B for latest real estate investment fund",
+    summary:
+      "Blackstone has closed its latest real estate fund at $10 billion. The fund will acquire commercial and multifamily properties across major US metropolitan areas.",
+    sourceName: "GlobeNewswire",
+    shouldAlert: false,
+    // Reaches the model: it matches funding language and the word "real
+    // estate", so only a classifier can tell a property FUND from proptech.
+    shouldPrefilter: true,
+    rationale: "An investment fund that buys property is not property technology. Explicitly out of scope.",
+  },
+  {
+    id: "fx-15",
+    title: "Acme Payments announces integration with popular accounting tools",
+    summary:
+      "Acme Payments said it now integrates with several accounting packages, making reconciliation easier for small businesses.",
+    sourceName: "PYMNTS",
+    shouldAlert: false,
+    shouldPrefilter: true,
+    rationale: "A routine, unnamed integration. The brief for partnerships requires something specific and substantive.",
   },
 ];
 

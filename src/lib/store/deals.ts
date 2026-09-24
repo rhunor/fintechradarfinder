@@ -20,11 +20,22 @@
 import type { Db } from "mongodb";
 import { COLLECTIONS, type DealDoc, type DealEvent, type DealSource } from "@/lib/store/schema";
 import { dealKey } from "@/lib/dedupe/normalize";
+import { eventConfig } from "@/config/events";
 
 const DUPLICATE_KEY = 11000;
 
-/** How long the same company + event stays suppressed after a successful alert. */
+/**
+ * Default suppression window for a repeat of the same company + event.
+ *
+ * Per-event overrides live in src/config/events.ts: a funding round is news
+ * once, but a product launch gets recycled through trade press for a week, so
+ * launches and partnerships use a longer window.
+ */
 export const DEAL_DEDUPE_WINDOW_MS = 72 * 60 * 60 * 1000;
+
+function dedupeWindowFor(event: DealEvent): number {
+  return eventConfig(event).dedupeWindowHours * 60 * 60 * 1000;
+}
 
 /** How long a send may take before its claim is considered abandoned. */
 export const CLAIM_TTL_MS = 5 * 60 * 1000;
@@ -74,7 +85,7 @@ export async function claimDealForAlert(
   const deals = db.collection<DealDoc>(COLLECTIONS.deals);
   const _id = keyForDeal(deal.company, deal.event);
   const claimExpiresAt = new Date(now.getTime() + CLAIM_TTL_MS);
-  const dedupeCutoff = new Date(now.getTime() - DEAL_DEDUPE_WINDOW_MS);
+  const dedupeCutoff = new Date(now.getTime() - dedupeWindowFor(deal.event));
 
   /**
    * Fields written ONLY when the document is first created.

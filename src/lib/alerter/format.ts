@@ -11,6 +11,7 @@
  * of these companies are, and because a timestamp in UTC is useless at a glance.
  */
 
+import { eventConfig } from "@/config/events";
 import type { DealDoc } from "@/lib/store/schema";
 import type { AlertPayload } from "@/lib/alerter/types";
 
@@ -131,8 +132,9 @@ function partiesLine(deal: DealDoc): string | null {
 export function formatAlert(payload: AlertPayload): string {
   const { deal, sourceName, link, detectionLatencyMs, unverified } = payload;
 
-  const icon = deal.event === "funding" ? "💰" : "🤝";
-  const label = deal.event === "funding" ? "FUNDING" : "ACQUISITION";
+  // Icon and label come from src/config/events.ts so adding an event type does
+  // not mean hunting through the formatter.
+  const { icon, label } = eventConfig(deal.event);
   const lines: string[] = [];
 
   if (unverified) {

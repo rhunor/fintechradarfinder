@@ -58,6 +58,25 @@ export const env = {
   get telegramWebhookSecret(): string {
     return required("TELEGRAM_WEBHOOK_SECRET");
   },
+  /**
+   * Public channel for deal alerts, e.g. "@fintechdealradar" or a numeric
+   * "-1001234567890". Optional: unset means alerts go to the owner's DM only.
+   *
+   * Operational messages (health warnings, daily summary, bot replies) always
+   * go to TELEGRAM_CHAT_ID regardless — subscribers should not see that a feed
+   * is down, and must not be able to run /pause.
+   */
+  get telegramChannelId(): string | undefined {
+    return optional("TELEGRAM_CHANNEL_ID");
+  },
+  /**
+   * Whether the owner also receives a DM copy of every alert once a channel is
+   * configured. Defaults to false: with a channel set up, duplicating every
+   * alert into the DM buries the operational messages that live there.
+   */
+  get alsoDmAlerts(): boolean {
+    return (optional("ALSO_DM_ALERTS") ?? "false").toLowerCase() === "true";
+  },
 
   // --- Scheduling / auth ---
   get cronSecret(): string {

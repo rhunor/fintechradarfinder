@@ -11,7 +11,9 @@
 
 import type { Db } from "mongodb";
 import { log } from "@/lib/log";
+import { env } from "@/lib/env";
 import { createTelegramDmChannel } from "@/lib/alerter/telegram";
+import { createTelegramChannelChannel } from "@/lib/alerter/telegram-channel";
 import type { AlertChannel, AlertPayload, SendResult } from "@/lib/alerter/types";
 import { claimDealForAlert, markDealSent, releaseDealClaim, type NewDeal } from "@/lib/store/deals";
 import { bumpUsage } from "@/lib/store/usage";
@@ -21,7 +23,18 @@ import { bumpUsage } from "@/lib/store/usage";
  * failing must not stop the others.
  */
 export function getChannels(): AlertChannel[] {
-  return [createTelegramDmChannel()].filter((c) => c.isEnabled());
+  const channel = createTelegramChannelChannel();
+  const dm = createTelegramDmChannel();
+
+  // With a public channel configured, the owner's DM stops receiving every
+  // alert by default. That DM is where health warnings and the daily summary
+  // live, and duplicating a busy alert feed into it buries them. Set
+  // ALSO_DM_ALERTS=true to get both.
+  const channels: AlertChannel[] = [];
+  if (channel.isEnabled()) channels.push(channel);
+  if (!channel.isEnabled() || env.alsoDmAlerts) channels.push(dm);
+
+  return channels.filter((c) => c.isEnabled());
 }
 
 export interface DispatchResult {

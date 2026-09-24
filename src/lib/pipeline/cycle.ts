@@ -27,6 +27,7 @@ import type { Db } from "mongodb";
 // Side-effect import: installs the keep-alive HTTP pool before any fetch runs.
 import "@/lib/http";
 import { ENABLED_SOURCES, type SourceConfig } from "@/config/sources";
+import { eventConfig, isEventEnabled } from "@/config/events";
 import { env, limits } from "@/lib/env";
 import { log, errorInfo } from "@/lib/log";
 import { fetchAllSources } from "@/lib/feeds/fetch-all";
@@ -383,15 +384,27 @@ async function classifyAndAlert(
     out.classified++;
     await markClassified(db, doc._id, verdict);
 
-    const shouldAlert = verdict.relevant && verdict.confidence >= env.alertMinConfidence;
+    // Each event type carries its own confidence floor: a partnership needs to
+    // be more certain than a funding round, because a false positive on the
+    // noisy categories is pure spam while a missed round is a real loss.
+    // env.alertMinConfidence remains the global floor beneath all of them.
+    const threshold = verdict.event
+      ? Math.max(eventConfig(verdict.event).minConfidence, env.alertMinConfidence)
+      : env.alertMinConfidence;
+
+    const eventAllowed = verdict.event !== null && isEventEnabled(verdict.event);
+    const shouldAlert = verdict.relevant && eventAllowed && verdict.confidence >= threshold;
+
     if (!shouldAlert) {
       const why = !verdict.is_fintech
         ? "not fintech"
         : verdict.region === "other"
           ? `region ${verdict.region}`
           : !verdict.event
-            ? "not a funding or M&A event"
-            : `confidence ${verdict.confidence.toFixed(2)}`;
+            ? "not a tracked event"
+            : !eventAllowed
+              ? `event ${verdict.event} is disabled`
+              : `confidence ${verdict.confidence.toFixed(2)} below ${threshold}`;
       await markRejected(db, doc._id, why);
       continue;
     }
@@ -403,9 +416,14 @@ async function classifyAndAlert(
       continue;
     }
 
+    // shouldAlert already required a non-null event; this re-states it so the
+    // compiler can narrow the type rather than taking it on trust.
+    const event = verdict.event;
+    if (!event) continue;
+
     const dispatch = await dispatchAlert(db, {
       company: verdict.company,
-      event: verdict.event ?? "funding",
+      event,
       region: verdict.region,
       fintechSubsector: verdict.fintech_subsector,
       amount: verdict.amount,
