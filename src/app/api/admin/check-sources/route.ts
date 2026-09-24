@@ -24,14 +24,14 @@ export async function GET(request: Request): Promise<Response> {
   // Diagnostic: it distinguishes "this origin is slow from Vercel" from "this
   // origin is refusing Vercel", which look identical in the normal output.
   const timeoutOverride = Number(params.get("timeout"));
-  const sources =
+  const candidates =
     Number.isFinite(timeoutOverride) && timeoutOverride > 0
       ? ENABLED_SOURCES.map((s) => ({ ...s, timeoutMs: Math.min(timeoutOverride, 45_000) }))
       : ENABLED_SOURCES;
 
   // ?only=sec-8k,sec-form-d narrows the check to specific sources.
   const only = params.get("only")?.split(",").map((s) => s.trim()).filter(Boolean);
-  const selected = only?.length ? sources.filter((s) => only.includes(s.id)) : sources;
+  const selected = only?.length ? candidates.filter((s) => only.includes(s.id)) : candidates;
 
   const started = Date.now();
   // No stored validators: force a full fetch so item counts are real.
