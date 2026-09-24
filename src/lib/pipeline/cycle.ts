@@ -49,10 +49,12 @@ import {
   markClassified,
   markRejected,
   recoverStuck,
+  resetExhaustedAttempts,
   returnToPending,
 } from "@/lib/store/candidates";
 import { beatHeartbeat, getSettings, recordCycleDuration } from "@/lib/store/settings";
-import { classifyBatch } from "@/lib/classifier";
+import { getUsage } from "@/lib/store/usage";
+import { aiOfflineFor, classifyBatch } from "@/lib/classifier";
 import { dispatchAlert } from "@/lib/alerter";
 import { fetchArticleText, needsArticleFetch, toCandidateItem } from "@/lib/pipeline/candidate";
 import { recordCycleCost, startMeter, type CycleMeasurement } from "@/lib/budget/meter";
@@ -62,6 +64,13 @@ import type { CandidateItem } from "@/lib/classifier/types";
 import type { CandidateDoc } from "@/lib/store/schema";
 
 const POLL_LOCK_ID = "poll-cycle";
+
+/** Nominal gap between cycles, used to decide when a backoff window is due. */
+const CYCLE_INTERVAL_MS = 60_000;
+/** First retry interval once the AI starts failing; doubles up to the max. */
+const AI_BACKOFF_BASE_MS = 2 * 60_000;
+/** Never wait longer than this before trying the AI again. */
+const AI_BACKOFF_MAX_MS = 15 * 60_000;
 
 export interface CycleReport {
   ran: boolean;
@@ -141,12 +150,17 @@ export async function runCycle(db: Db, options: { budgetMs?: number } = {}): Pro
     // These four queries are independent, so they go out together. Run
     // sequentially they were four round trips of dead wall-clock time at the
     // start of every cycle, and wall time is what the memory meter bills.
-    const [heartbeat, recovered, settings, state] = await Promise.all([
+    const [heartbeat, recovered, settings, state, usageToday] = await Promise.all([
       beatHeartbeat(db, now),
       recoverStuck(db, now),
       getSettings(db),
       loadAllSourceState(db),
+      getUsage(db),
     ]);
+
+    // Today's cycle count is the only monotonic counter a stateless function
+    // has, and it is enough to spread classification across cycles.
+    const cycleNumber = usageToday.cycles;
 
     report.gapMs = heartbeat.gapMs;
     if (heartbeat.gapDetected) {
@@ -157,6 +171,14 @@ export async function runCycle(db: Db, options: { budgetMs?: number } = {}): Pro
     }
     if (recovered > 0) log.warn("cycle.recovered_stuck", { count: recovered });
     report.paused = settings.paused;
+
+    // The AI is healthy again: give a fresh start to anything that burned
+    // through its attempts while the provider was unavailable. Those attempts
+    // measured our availability, not the item.
+    if (!settings.aiFailingSince) {
+      const rescued = await resetExhaustedAttempts(db, now);
+      if (rescued > 0) log.warn("cycle.rescued_exhausted", { count: rescued });
+    }
 
     // ---- 3. Fetch due sources --------------------------------------------
     const due = dueSources(ENABLED_SOURCES, state, now);
@@ -222,7 +244,7 @@ export async function runCycle(db: Db, options: { budgetMs?: number } = {}): Pro
     // ---- 6 & 7. Classify and alert ---------------------------------------
     // Only if there is enough budget left to be worth starting.
     if (deadline.remaining() > 5_000) {
-      const outcome = await classifyAndAlert(db, deadline, report.paused);
+      const outcome = await classifyAndAlert(db, deadline, report.paused, cycleNumber);
       report.classified = outcome.classified;
       report.alertsSent = outcome.alertsSent;
     } else {
@@ -316,8 +338,49 @@ async function classifyAndAlert(
   db: Db,
   deadline: { remaining: () => number; signal: AbortSignal },
   paused: boolean,
+  cycleNumber: number,
 ): Promise<ClassifyAlertOutcome> {
   const out: ClassifyAlertOutcome = { classified: 0, alertsSent: 0 };
+
+  // Classification is the single most expensive thing a cycle does, and the
+  // cost is almost entirely waiting. Running it on a fraction of cycles keeps
+  // the memory meter down and batches more items per request. Fetching and
+  // deduping still happen every cycle, so nothing is missed — only delayed.
+  const everyN = limits.classifyEveryNCycles;
+  if (everyN > 1 && cycleNumber % everyN !== 0) {
+    const waiting = await countPending(db);
+    if (waiting > 0) {
+      log.info("cycle.classify_skipped", { cycle: cycleNumber, every_n: everyN, pending: waiting });
+    }
+    return out;
+  }
+
+  // BACK OFF WHEN THE PROVIDER IS DOWN.
+  //
+  // Without this, a slow or unavailable Gemini makes EVERY cycle spend its
+  // whole classification budget failing. Observed in production: 90 cycles
+  // averaging 25.9 seconds of wall time while completing just 5 requests —
+  // which alone projected 172% of the Vercel memory allowance, because memory
+  // is billed by wall time including time spent waiting.
+  //
+  // While the provider is failing we retry on a widening interval instead.
+  // Nothing is lost: candidates stay pending and drain once it recovers.
+  const offlineMs = await aiOfflineFor(db);
+  if (offlineMs !== null) {
+    const backoffMs = Math.min(
+      AI_BACKOFF_BASE_MS * 2 ** Math.floor(offlineMs / AI_BACKOFF_BASE_MS),
+      AI_BACKOFF_MAX_MS,
+    );
+    const sinceLastTry = offlineMs % backoffMs;
+    if (sinceLastTry > CYCLE_INTERVAL_MS) {
+      log.info("cycle.ai_backoff", {
+        offline_ms: offlineMs,
+        backoff_ms: backoffMs,
+        pending: await countPending(db),
+      });
+      return out;
+    }
+  }
 
   const pending = await claimPending(db, limits.maxClassifierBatch);
   if (pending.length === 0) return out;
@@ -367,7 +430,9 @@ async function classifyAndAlert(
   if (result.deferred) {
     // Nothing was classified. Put everything back so the next cycle retries.
     log.warn("cycle.classification_deferred", { reason: result.reason, items: items.length });
-    for (const doc of pending) await returnToPending(db, doc._id);
+    // Refund: the provider never judged these items, so the attempt measured
+    // our availability, not their classifiability.
+    for (const doc of pending) await returnToPending(db, doc._id, { refundAttempt: true });
     return out;
   }
 
@@ -376,7 +441,8 @@ async function classifyAndAlert(
   for (const [id, doc] of byId) {
     const verdict = verdictById.get(id);
     if (!verdict) {
-      // The model skipped this item. Retry it rather than assume irrelevance.
+      // The model saw this item and returned nothing for it. That is about the
+      // item, so the attempt stands and it will eventually stop being retried.
       await returnToPending(db, doc._id);
       continue;
     }
@@ -454,8 +520,8 @@ async function classifyAndAlert(
     } else if (dispatch.skipped === "duplicate" || dispatch.skipped === "in-flight") {
       await markRejected(db, doc._id, `duplicate deal (${dispatch.skipped})`);
     } else {
-      // Sending failed. Retry next cycle rather than losing the alert.
-      await returnToPending(db, doc._id);
+      // Sending failed: Telegram's problem, not the item's. Refund and retry.
+      await returnToPending(db, doc._id, { refundAttempt: true });
     }
   }
 

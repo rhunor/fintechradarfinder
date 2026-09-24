@@ -148,14 +148,42 @@ export async function markRejected(
 /**
  * Return an item to the queue after a failed or abandoned attempt.
  * Rewinding statusAt makes it immediately eligible again.
+ *
+ * `refund` un-counts the attempt. It matters more than it looks: the attempt
+ * counter exists to stop us retrying an item the model genuinely cannot handle,
+ * but an AI outage or a cycle deadline is not the item's fault. Without a
+ * refund, an hour of Gemini being slow burns every queued item through its five
+ * attempts and strands them permanently — which is exactly what happened in
+ * production: 42 of 57 pending items hit attempts=5 having never once reached
+ * the model.
  */
-export async function returnToPending(db: Db, id: string, now: Date = new Date()): Promise<void> {
-  await db
-    .collection<CandidateDoc>(COLLECTIONS.candidates)
-    .updateOne(
-      { _id: id },
-      { $set: { status: "pending", statusAt: new Date(now.getTime() - STUCK_THRESHOLD_MS - 1000) } },
-    );
+export async function returnToPending(
+  db: Db,
+  id: string,
+  opts: { refundAttempt?: boolean; now?: Date } = {},
+): Promise<void> {
+  const now = opts.now ?? new Date();
+  const update: Record<string, unknown> = {
+    $set: { status: "pending", statusAt: new Date(now.getTime() - STUCK_THRESHOLD_MS - 1000) },
+  };
+  if (opts.refundAttempt) update["$inc"] = { attempts: -1 };
+
+  await db.collection<CandidateDoc>(COLLECTIONS.candidates).updateOne({ _id: id }, update);
+}
+
+/**
+ * Rescue items stranded at the attempt ceiling.
+ *
+ * Called when the AI recovers: anything that exhausted its attempts while the
+ * provider was down deserves a fresh start, because those attempts measured our
+ * availability rather than the item.
+ */
+export async function resetExhaustedAttempts(db: Db, now: Date = new Date()): Promise<number> {
+  const res = await db.collection<CandidateDoc>(COLLECTIONS.candidates).updateMany(
+    { status: "pending", attempts: { $gte: MAX_ATTEMPTS } },
+    { $set: { attempts: 0, statusAt: new Date(now.getTime() - STUCK_THRESHOLD_MS - 1000) } },
+  );
+  return res.modifiedCount;
 }
 
 /**

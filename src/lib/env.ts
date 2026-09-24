@@ -148,7 +148,22 @@ export const limits = {
    * Slice of the cycle budget a single classify call may consume. Bounded so a
    * pathologically slow model response still leaves time to save state.
    */
-  classifyBudgetMs: num("CLASSIFY_BUDGET_MS", 30_000),
+  classifyBudgetMs: num("CLASSIFY_BUDGET_MS", 25_000),
+  /**
+   * Run classification only on every Nth cycle.
+   *
+   * WHY THIS EXISTS: free-tier Gemini answers in ~16s median, and Vercel bills
+   * Provisioned Memory by wall-clock time INCLUDING time spent waiting on the
+   * network. Classifying every minute therefore costs roughly 16 seconds of
+   * billed memory per minute, forever — which measured at 172% of the Hobby
+   * allowance in production.
+   *
+   * Classifying every third cycle cuts that by two thirds while batching more
+   * items into each request, which is more efficient anyway. The cost is up to
+   * two extra minutes of alert latency; fetching and deduping still run every
+   * cycle, so nothing is missed, only delayed.
+   */
+  classifyEveryNCycles: num("CLASSIFY_EVERY_N_CYCLES", 3),
   /** Per-feed fetch timeout. A slow feed is skipped and retried next cycle. */
   feedTimeoutMs: num("FEED_TIMEOUT_MS", 5_000),
   /** Per-article fetch timeout when enriching a candidate. */
