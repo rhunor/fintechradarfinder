@@ -16,7 +16,8 @@
     "dry-run": "tsx scripts/dry-run.ts",
     "telegram:set-webhook": "tsx scripts/set-webhook.ts",
     "test:fast": "vitest run --exclude \"tests/classifier-live.test.ts\"",
-    "db:reset-metrics": "tsx scripts/reset-metrics.ts"
+    "db:reset-metrics": "tsx scripts/reset-metrics.ts",
+    "drain": "tsx scripts/drain-queue.ts"
   },
   "dependencies": {
     "@google/genai": "^2.24.0",
