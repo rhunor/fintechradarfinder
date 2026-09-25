@@ -118,6 +118,18 @@ export async function recordFetchError(
   );
 }
 
+/**
+ * How many consecutive failures a source must have before it is called
+ * unhealthy, on top of being silent for the whole window.
+ *
+ * WHY BOTH CONDITIONS: elapsed time alone is a noisy signal. Feeds sit behind
+ * CDNs, and an occasional slow origin fetch can leave a perfectly healthy
+ * source without a success for a quarter of an hour. errorCount resets to zero
+ * on any success, so requiring it to be high means we only warn about a source
+ * that is failing repeatedly rather than one that is merely unlucky.
+ */
+export const MIN_CONSECUTIVE_ERRORS_TO_WARN = 3;
+
 /** Sources with no successful fetch inside the window, for health warnings. */
 export function staleSources(
   sources: readonly SourceConfig[],
@@ -132,6 +144,8 @@ export function staleSources(
     if (lastSuccess && now.getTime() - lastSuccess.getTime() < windowMs) continue;
     // A source that has never run is not "stale" until it has had a chance.
     if (!doc) continue;
+    // Silent AND repeatedly failing, not merely silent.
+    if (doc.errorCount < MIN_CONSECUTIVE_ERRORS_TO_WARN) continue;
     const entry: { source: SourceConfig; lastSuccessAt: Date | null; lastError?: string } = {
       source,
       lastSuccessAt: lastSuccess,

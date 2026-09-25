@@ -274,7 +274,7 @@ export const SOURCES: readonly SourceConfig[] = [
     minIntervalSeconds: MEDIA_INTERVAL,
     conditionalGet: "last-modified",
     enabled: true,
-    timeoutMs: 10_000,
+    timeoutMs: 14_000,
     categoryFilter: ["fintech", "funding", "acquisitions", "mergers-acquisitions", "ai"],
     note:
       "Main feed only, and it is a 1.4MB/150-item WordPress feed, hence the long timeout. " +

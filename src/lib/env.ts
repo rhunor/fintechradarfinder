@@ -164,8 +164,25 @@ export const limits = {
    * cycle, so nothing is missed, only delayed.
    */
   classifyEveryNCycles: num("CLASSIFY_EVERY_N_CYCLES", 3),
-  /** Per-feed fetch timeout. A slow feed is skipped and retried next cycle. */
-  feedTimeoutMs: num("FEED_TIMEOUT_MS", 5_000),
+  /**
+   * Per-feed fetch timeout.
+   *
+   * MEASURED, not guessed: every source sits behind a CDN, and the first
+   * request after its cache expires falls through to a slow origin. Sampling
+   * one PR Newswire feed four times in a row from Vercel gave 11,431ms then
+   * 26ms, 33ms, 52ms — a cache miss followed by edge hits. GlobeNewswire
+   * behaves identically (11,806ms then sub-second).
+   *
+   * At 5s every cache miss became a failure, which is why several sources
+   * "went unhealthy" each cycle. It bought nothing: those cycles were already
+   * costing ~11.5s of wall time, so the short timeout converted slow-but-
+   * successful fetches into failures without saving any time.
+   *
+   * 12s clears the observed miss latency with margin. A source that exceeds it
+   * is skipped and retried next cycle, which costs at most one poll interval of
+   * delay — the item stays in the feed, so nothing is lost.
+   */
+  feedTimeoutMs: num("FEED_TIMEOUT_MS", 12_000),
   /** Per-article fetch timeout when enriching a candidate. */
   articleTimeoutMs: num("ARTICLE_TIMEOUT_MS", 5_000),
   /** Most full article pages we will fetch in one cycle. */

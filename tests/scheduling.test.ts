@@ -77,16 +77,17 @@ describe("validatorsFrom", () => {
 
 describe("staleSources", () => {
   const FIFTEEN_MIN = 15 * 60 * 1000;
+  const FAILING = { errorCount: 5 };
 
-  it("flags a source with no recent success", () => {
-    const map = new Map([["wire", state("wire", 20 * 60)]]);
+  it("flags a source that is both silent and repeatedly failing", () => {
+    const map = new Map([["wire", state("wire", 20 * 60, FAILING)]]);
     const stale = staleSources([wire], map, FIFTEEN_MIN);
     expect(stale).toHaveLength(1);
     expect(stale[0]!.source.id).toBe("wire");
   });
 
   it("ignores a healthy source", () => {
-    const map = new Map([["wire", state("wire", 60)]]);
+    const map = new Map([["wire", state("wire", 60, FAILING)]]);
     expect(staleSources([wire], map, FIFTEEN_MIN)).toHaveLength(0);
   });
 
@@ -95,8 +96,17 @@ describe("staleSources", () => {
     expect(staleSources([wire], new Map(), FIFTEEN_MIN)).toHaveLength(0);
   });
 
+  it("does not flag a silent source that is not actually failing", () => {
+    // The noisy case this rule exists for: feeds sit behind CDNs, and an
+    // occasional slow origin fetch can leave a healthy source without a
+    // success for a quarter of an hour. errorCount resets on any success, so
+    // a low count means it is unlucky rather than broken.
+    const map = new Map([["wire", state("wire", 20 * 60, { errorCount: 1 })]]);
+    expect(staleSources([wire], map, FIFTEEN_MIN)).toHaveLength(0);
+  });
+
   it("includes the last error so the warning can say why", () => {
-    const map = new Map([["wire", state("wire", 20 * 60, { lastError: "HTTP 403" })]]);
+    const map = new Map([["wire", state("wire", 20 * 60, { ...FAILING, lastError: "HTTP 403" })]]);
     expect(staleSources([wire], map, FIFTEEN_MIN)[0]!.lastError).toBe("HTTP 403");
   });
 });
