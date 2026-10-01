@@ -323,8 +323,13 @@ export const SOURCES: readonly SourceConfig[] = [
     regionHint: "CA",
     minIntervalSeconds: 120,
     conditionalGet: "etag",
-    enabled: true,
-    note: "Canadian newswire. Its old list paths 404'd; this one works and fills the Canadian wire gap.",
+    // DISABLED: works from Europe but returns 404 from Vercel's US region
+    // (iad1) on every request — Cloudflare serves newswire.ca differently by
+    // region. The other list paths answer from the US but their newest items
+    // are days old. Re-test with /api/admin/check-sources?only=cnw after
+    // enabling if CNW ever changes its setup.
+    enabled: false,
+    note: "Region-dependent: 200 from Europe, 404 from Vercel iad1.",
   },
   {
     id: "pe-hub",

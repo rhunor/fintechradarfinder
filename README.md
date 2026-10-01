@@ -366,13 +366,16 @@ days, and Telegram update records after 1 day. Real usage is a few MB.
 
 ## Sources
 
-44 feeds, all official RSS/Atom. No HTML scraping, no paywall circumvention.
+43 active feeds, all official RSS/Atom. No HTML scraping, no paywall circumvention.
 Each was fetched and verified before being added, and its conditional-GET
 support was measured — several publishers advertise an ETag but never answer
 304, and those are marked `body-hash` rather than trusted.
 
-**Newswires (60s)** — PR Newswire ×4, GlobeNewswire ×3. **CNW** (Canadian
-wire) every 2 minutes.
+**Newswires (60s)** — PR Newswire ×4, GlobeNewswire ×3.
+
+CNW (PR Newswire Canada) is configured but disabled: its feed works from Europe
+yet returns 404 from Vercel's US region every time, and its other list paths
+are days stale from the US.
 
 **Regulatory (180s)** — SEC EDGAR 8-K, SEC EDGAR Form D
 
