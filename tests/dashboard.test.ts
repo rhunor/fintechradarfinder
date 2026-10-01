@@ -85,6 +85,12 @@ describe("parseFilters", () => {
     expect(f).toEqual({ event: "funding", region: "CA", days: 7, search: "Ramp" });
   });
 
+  it("accepts every configured event type, not just deals", () => {
+    for (const event of ["launch", "expansion", "rebrand", "partnership"]) {
+      expect(parseFilters(new URLSearchParams(`event=${event}`)).event).toBe(event);
+    }
+  });
+
   it("falls back to defaults for values not on the allowlist", () => {
     // Anything from a URL is untrusted; an unknown region must not reach Mongo.
     const f = parseFilters(new URLSearchParams("event=hacked&region=XX&days=9999"));

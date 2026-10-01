@@ -10,6 +10,7 @@
  */
 
 import type { Db } from "mongodb";
+import { eventConfig } from "@/config/events";
 import { ENABLED_SOURCES } from "@/config/sources";
 import { env } from "@/lib/env";
 import { escapeHtml, formatDuration, formatEtDateTime } from "@/lib/alerter/format";
@@ -60,7 +61,7 @@ export async function buildDailySummary(db: Db): Promise<string> {
     lines.push("<i>No qualifying deals. Quiet day, or worth checking /sources.</i>");
   } else {
     for (const deal of deals.slice(0, 10)) {
-      const icon = deal.event === "funding" ? "💰" : "🤝";
+      const icon = eventConfig(deal.event).icon;
       const detail = [deal.round, deal.amount ?? deal.dealValue].filter(Boolean).join(" · ");
       lines.push(
         `${icon} <b>${escapeHtml(deal.company)}</b>${detail ? ` — ${escapeHtml(detail)}` : ""}`,

@@ -11,6 +11,7 @@
  */
 
 import type { Db } from "mongodb";
+import { eventConfig } from "@/config/events";
 import { ENABLED_SOURCES } from "@/config/sources";
 import { env } from "@/lib/env";
 import { escapeHtml, formatDuration, formatEtDateTime, formatAlert } from "@/lib/alerter/format";
@@ -131,7 +132,7 @@ export async function handleLast(db: Db): Promise<string> {
 
   const lines: string[] = ["<b>🕐 Last 5 alerts</b>", ""];
   for (const deal of deals) {
-    const icon = deal.event === "funding" ? "💰" : "🤝";
+    const icon = eventConfig(deal.event).icon;
     const detail = [deal.round, deal.amount ?? deal.dealValue].filter(Boolean).join(" · ");
     lines.push(
       `${icon} <b>${escapeHtml(deal.company)}</b>${detail ? ` — ${escapeHtml(detail)}` : ""}`,

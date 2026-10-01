@@ -8,6 +8,7 @@
  */
 
 import { getDb } from "@/lib/store/client";
+import { EVENTS, eventConfig } from "@/config/events";
 import { COLLECTIONS, type DealDoc } from "@/lib/store/schema";
 import { isLoggedIn } from "@/lib/dashboard/auth";
 import { buildQuery, filterHref, parseFilters, type DealFilters } from "@/lib/dashboard/query";
@@ -87,15 +88,11 @@ function Filters({ filters }: { filters: DealFilters }) {
         <a className={chip(filters.event === "all")} href={filterHref(filters, { event: "all" })}>
           All
         </a>
-        <a className={chip(filters.event === "funding")} href={filterHref(filters, { event: "funding" })}>
-          💰 Funding
-        </a>
-        <a
-          className={chip(filters.event === "acquisition")}
-          href={filterHref(filters, { event: "acquisition" })}
-        >
-          🤝 Acquisition
-        </a>
+        {EVENTS.map((e) => (
+          <a key={e.id} className={chip(filters.event === e.id)} href={filterHref(filters, { event: e.id })}>
+            {e.icon} {e.label.charAt(0) + e.label.slice(1).toLowerCase()}
+          </a>
+        ))}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -138,7 +135,7 @@ function Filters({ filters }: { filters: DealFilters }) {
 }
 
 function DealRow({ deal }: { deal: DealDoc }) {
-  const icon = deal.event === "funding" ? "💰" : "🤝";
+  const icon = eventConfig(deal.event).icon;
   const money = deal.amount ?? deal.dealValue;
   const latency =
     deal.publishedAt && deal.alertedAt

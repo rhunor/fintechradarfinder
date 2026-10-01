@@ -11,6 +11,7 @@
 
 import type { Filter } from "mongodb";
 import type { DealDoc, DealEvent } from "@/lib/store/schema";
+import { EVENTS } from "@/config/events";
 
 export interface DealFilters {
   event: DealEvent | "all";
@@ -28,7 +29,9 @@ export function parseFilters(params: URLSearchParams): DealFilters {
   const days = Number(params.get("days") ?? 30);
 
   return {
-    event: event === "funding" || event === "acquisition" ? event : "all",
+    // Allowlisted against the configured event types: anything from a URL is
+    // untrusted and must not reach Mongo unchecked.
+    event: EVENTS.some((e) => e.id === event) ? (event as DealEvent) : "all",
     region: (ALLOWED_REGIONS as readonly string[]).includes(region) ? region : "all",
     days: (ALLOWED_DAYS as readonly number[]).includes(days) ? days : 30,
     // Cap the length: a multi-kilobyte search term is never legitimate.
