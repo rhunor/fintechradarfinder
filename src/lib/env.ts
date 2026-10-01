@@ -22,6 +22,14 @@ function optional(name: string): string | undefined {
   return v && v.trim() !== "" ? v : undefined;
 }
 
+function optionalNum(name: string): number | undefined {
+  const v = optional(name);
+  if (v === undefined) return undefined;
+  const n = Number(v);
+  if (!Number.isFinite(n)) throw new Error(`Environment variable ${name} must be a number, got "${v}".`);
+  return n;
+}
+
 function num(name: string, fallback: number): number {
   const v = optional(name);
   if (v === undefined) return fallback;
@@ -150,20 +158,35 @@ export const limits = {
    */
   classifyBudgetMs: num("CLASSIFY_BUDGET_MS", 25_000),
   /**
-   * Run classification only on every Nth cycle.
+   * Minimum time between AI calls while stories keep arriving.
    *
-   * WHY THIS EXISTS: free-tier Gemini answers in ~16s median, and Vercel bills
-   * Provisioned Memory by wall-clock time INCLUDING time spent waiting on the
-   * network. Classifying every minute therefore costs roughly 16 seconds of
-   * billed memory per minute, forever — which measured at 172% of the Hobby
-   * allowance in production.
+   * WHY IT EXISTS: free-tier Gemini answers in ~16-33s, and Vercel bills memory
+   * by wall-clock time including waiting. Calling it every minute would spend
+   * most of the free allowance on waiting. This spaces calls out and batches
+   * more stories into each one.
    *
-   * Classifying every third cycle cuts that by two thirds while batching more
-   * items into each request, which is more efficient anyway. The cost is up to
-   * two extra minutes of alert latency; fetching and deduping still run every
-   * cycle, so nothing is missed, only delayed.
+   * It is a TIME, not "every Nth cycle". The old cycle-count gate interacted
+   * with the retry backoff through modular arithmetic and could lock the AI out
+   * for hours — see src/lib/pipeline/classify-schedule.ts.
+   *
+   * When nothing is queued the clock is not advanced, so a story arriving after
+   * a quiet spell is classified on the very next cycle.
+   *
+   * CLASSIFY_EVERY_N_CYCLES is still honoured (as N minutes, one cycle per
+   * minute) so an existing deployment keeps the setting it already has.
    */
-  classifyEveryNCycles: num("CLASSIFY_EVERY_N_CYCLES", 3),
+  classifyIntervalMs: optionalNum("CLASSIFY_INTERVAL_SECONDS") !== undefined
+    ? optionalNum("CLASSIFY_INTERVAL_SECONDS")! * 1000
+    : num("CLASSIFY_EVERY_N_CYCLES", 3) * 60_000,
+  /**
+   * Stories older than this are not posted. They are marked stale instead.
+   *
+   * WHY: after any outage, the queue holds stories that are hours old. Posting
+   * them all at once is the "everything arrives in a burst, detected in 13h"
+   * behaviour this exists to prevent. The queue is also drained newest-first,
+   * so fresh news is never stuck behind a backlog.
+   */
+  maxAlertAgeHours: num("MAX_ALERT_AGE_HOURS", 6),
   /**
    * Per-feed fetch timeout.
    *

@@ -127,6 +127,25 @@ export async function selectProvider(
   };
 }
 
+/**
+ * The model to retry on when `currentModel` is overloaded, or null.
+ *
+ * Only for server-side capacity errors (5xx): a 429 means OUR quota is spent,
+ * which the fallback's separate quota is handled by selectProvider instead.
+ */
+async function overloadFallback(
+  db: Db,
+  currentModel: string,
+  status: number | undefined,
+): Promise<string | null> {
+  const fallback = env.geminiFallbackModel;
+  if (!fallback || fallback === currentModel) return null;
+  if (status === undefined || status < 500) return null;
+  const usage = await getUsage(db);
+  if (requestsForModel(usage, fallback) >= env.geminiFallbackDailyLimit) return null;
+  return fallback;
+}
+
 /** Records that the AI is currently failing, if it was not already marked. */
 export async function markAiFailing(db: Db, error: string): Promise<Date> {
   const now = new Date();
@@ -186,7 +205,10 @@ export async function classifyBatch(
     return { verdicts: [], provider: null, deferred: false };
   }
 
-  const { classifier, model, reason } = await selectProvider(db, opts);
+  const selection = await selectProvider(db, opts);
+  const reason = selection.reason;
+  let classifier = selection.classifier;
+  let model = selection.model;
   if (!classifier || !model) {
     log.warn("classifier.deferred", { reason, items: items.length });
     return { verdicts: [], provider: null, deferred: true, reason };
@@ -244,6 +266,20 @@ export async function classifyBatch(
           deferred: true,
           reason: "cycle deadline reached; items stay pending",
         };
+      }
+
+      // "This model is currently experiencing high demand" (503) and other 5xx
+      // errors are about THAT model's capacity, not ours. The fallback model has
+      // its own separate capacity, so switch to it for the retry instead of
+      // hitting the overloaded one again. Previously the fallback was only used
+      // once the daily quota ran out, so a busy afternoon on one model stopped
+      // classification entirely while the other sat unused.
+      const fallback = await overloadFallback(db, model, classifierError?.status);
+      if (fallback) {
+        log.warn("classifier.switching_to_fallback", { from: model, to: fallback, status: classifierError?.status });
+        classifier = createGeminiClassifier(fallback);
+        model = fallback;
+        continue;
       }
 
       // A 429 that named a delay: honour it only if it fits in the budget.

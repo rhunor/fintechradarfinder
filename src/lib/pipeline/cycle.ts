@@ -45,6 +45,7 @@ import {
   addCandidates,
   claimPending,
   countPending,
+  expireStale,
   markAlerted,
   markClassified,
   markRejected,
@@ -52,25 +53,24 @@ import {
   resetExhaustedAttempts,
   returnToPending,
 } from "@/lib/store/candidates";
-import { beatHeartbeat, getSettings, recordCycleDuration } from "@/lib/store/settings";
-import { getUsage } from "@/lib/store/usage";
-import { aiOfflineFor, classifyBatch } from "@/lib/classifier";
+import {
+  beatHeartbeat,
+  getSettings,
+  recordCycleDuration,
+  saveClassifySchedule,
+} from "@/lib/store/settings";
+import { classifyBatch } from "@/lib/classifier";
+import { isClassifyDue, nextClassifyTime } from "@/lib/pipeline/classify-schedule";
 import { dispatchAlert } from "@/lib/alerter";
 import { fetchArticleText, needsArticleFetch, toCandidateItem } from "@/lib/pipeline/candidate";
 import { recordCycleCost, startMeter, type CycleMeasurement } from "@/lib/budget/meter";
 import { warnBudget, warnStaleSources } from "@/lib/pipeline/health";
 import type { RawItem } from "@/lib/feeds/types";
 import type { CandidateItem } from "@/lib/classifier/types";
-import type { CandidateDoc } from "@/lib/store/schema";
+import type { CandidateDoc, SettingsDoc } from "@/lib/store/schema";
 
 const POLL_LOCK_ID = "poll-cycle";
 
-/** Nominal gap between cycles, used to decide when a backoff window is due. */
-const CYCLE_INTERVAL_MS = 60_000;
-/** First retry interval once the AI starts failing; doubles up to the max. */
-const AI_BACKOFF_BASE_MS = 2 * 60_000;
-/** Never wait longer than this before trying the AI again. */
-const AI_BACKOFF_MAX_MS = 15 * 60_000;
 
 export interface CycleReport {
   ran: boolean;
@@ -150,17 +150,12 @@ export async function runCycle(db: Db, options: { budgetMs?: number } = {}): Pro
     // These four queries are independent, so they go out together. Run
     // sequentially they were four round trips of dead wall-clock time at the
     // start of every cycle, and wall time is what the memory meter bills.
-    const [heartbeat, recovered, settings, state, usageToday] = await Promise.all([
+    const [heartbeat, recovered, settings, state] = await Promise.all([
       beatHeartbeat(db, now),
       recoverStuck(db, now),
       getSettings(db),
       loadAllSourceState(db),
-      getUsage(db),
     ]);
-
-    // Today's cycle count is the only monotonic counter a stateless function
-    // has, and it is enough to spread classification across cycles.
-    const cycleNumber = usageToday.cycles;
 
     report.gapMs = heartbeat.gapMs;
     if (heartbeat.gapDetected) {
@@ -244,7 +239,7 @@ export async function runCycle(db: Db, options: { budgetMs?: number } = {}): Pro
     // ---- 6 & 7. Classify and alert ---------------------------------------
     // Only if there is enough budget left to be worth starting.
     if (deadline.remaining() > 5_000) {
-      const outcome = await classifyAndAlert(db, deadline, report.paused, cycleNumber);
+      const outcome = await classifyAndAlert(db, deadline, report.paused, settings, now);
       report.classified = outcome.classified;
       report.alertsSent = outcome.alertsSent;
     } else {
@@ -338,51 +333,27 @@ async function classifyAndAlert(
   db: Db,
   deadline: { remaining: () => number; signal: AbortSignal },
   paused: boolean,
-  cycleNumber: number,
+  settings: SettingsDoc,
+  now: Date,
 ): Promise<ClassifyAlertOutcome> {
   const out: ClassifyAlertOutcome = { classified: 0, alertsSent: 0 };
 
-  // Classification is the single most expensive thing a cycle does, and the
-  // cost is almost entirely waiting. Running it on a fraction of cycles keeps
-  // the memory meter down and batches more items per request. Fetching and
-  // deduping still happen every cycle, so nothing is missed — only delayed.
-  const everyN = limits.classifyEveryNCycles;
-  if (everyN > 1 && cycleNumber % everyN !== 0) {
-    const waiting = await countPending(db);
-    if (waiting > 0) {
-      log.info("cycle.classify_skipped", { cycle: cycleNumber, every_n: everyN, pending: waiting });
-    }
-    return out;
-  }
+  // ONE CLOCK. The AI may be called once the stored `nextClassifyAt` has
+  // passed — that single comparison replaces two modular-arithmetic gates that
+  // could misalign and lock classification out for hours (see
+  // classify-schedule.ts for the production incident).
+  if (!isClassifyDue(settings.nextClassifyAt, now)) return out;
 
-  // BACK OFF WHEN THE PROVIDER IS DOWN.
-  //
-  // Without this, a slow or unavailable Gemini makes EVERY cycle spend its
-  // whole classification budget failing. Observed in production: 90 cycles
-  // averaging 25.9 seconds of wall time while completing just 5 requests —
-  // which alone projected 172% of the Vercel memory allowance, because memory
-  // is billed by wall time including time spent waiting.
-  //
-  // While the provider is failing we retry on a widening interval instead.
-  // Nothing is lost: candidates stay pending and drain once it recovers.
-  const offlineMs = await aiOfflineFor(db);
-  if (offlineMs !== null) {
-    const backoffMs = Math.min(
-      AI_BACKOFF_BASE_MS * 2 ** Math.floor(offlineMs / AI_BACKOFF_BASE_MS),
-      AI_BACKOFF_MAX_MS,
-    );
-    const sinceLastTry = offlineMs % backoffMs;
-    if (sinceLastTry > CYCLE_INTERVAL_MS) {
-      log.info("cycle.ai_backoff", {
-        offline_ms: offlineMs,
-        backoff_ms: backoffMs,
-        pending: await countPending(db),
-      });
-      return out;
-    }
-  }
+  // Stories that have sat too long are retired rather than posted. After any
+  // outage this is what stops a burst of hours-old alerts.
+  const expired = await expireStale(db, limits.maxAlertAgeHours, now);
+  if (expired > 0) log.warn("cycle.expired_stale", { count: expired, max_age_hours: limits.maxAlertAgeHours });
 
+  // Freshest first, so breaking news never waits behind a backlog.
   const pending = await claimPending(db, limits.maxClassifierBatch);
+
+  // Nothing queued: do NOT advance the clock. The next story to arrive is then
+  // classified on the very next cycle instead of waiting out an interval.
   if (pending.length === 0) return out;
 
   // Enrich only the thin ones, and only within the per-cycle cap. A wire item
@@ -426,6 +397,23 @@ async function classifyAndAlert(
   }
 
   const result = await classifyBatch(db, items, { signal: deadline.signal });
+
+  // Move the clock: the normal interval after a success, a bounded growing
+  // backoff after a failure. Every outcome schedules a next attempt, so the
+  // AI can never be left unscheduled.
+  const schedule = nextClassifyTime(
+    result.deferred ? "failure" : "success",
+    settings.aiConsecutiveFailures ?? 0,
+    limits.classifyIntervalMs,
+    new Date(),
+  );
+  await saveClassifySchedule(db, schedule.nextClassifyAt, schedule.consecutiveFailures);
+  if (result.deferred) {
+    log.warn("cycle.classify_retry_scheduled", {
+      failures: schedule.consecutiveFailures,
+      retry_at: schedule.nextClassifyAt.toISOString(),
+    });
+  }
 
   if (result.deferred) {
     // Nothing was classified. Put everything back so the next cycle retries.

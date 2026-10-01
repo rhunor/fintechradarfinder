@@ -175,6 +175,13 @@ export interface SettingsDoc {
   lastCycleDurationMs?: number;
   /** Rate-limits the Vercel budget warning to once per day. */
   lastBudgetWarningAt?: Date;
+  /**
+   * The single clock that gates AI calls. A cycle classifies only once the
+   * current time has passed this. See src/lib/pipeline/classify-schedule.ts.
+   */
+  nextClassifyAt?: Date | null;
+  /** Failed classify attempts in a row, driving the retry backoff. */
+  aiConsecutiveFailures?: number;
   updatedAt: Date;
 }
 

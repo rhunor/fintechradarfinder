@@ -78,6 +78,18 @@ export async function handleStatus(db: Db): Promise<string> {
       `   fallback ${escapeHtml(fallback)}: ${requestsForModel(usage, fallback)}/${env.geminiFallbackDailyLimit}`,
     );
   }
+  // When the AI will next be asked. If this ever says "overdue" for long, the
+  // scheduler has stalled — that is the failure mode it exists to expose.
+  const next = settings.nextClassifyAt ?? null;
+  const failures = settings.aiConsecutiveFailures ?? 0;
+  if (next) {
+    const ms = next.getTime() - Date.now();
+    lines.push(
+      ms > 0
+        ? `   next AI check: in ${formatDuration(ms)}${failures > 0 ? ` (retry #${failures})` : ""}`
+        : `   next AI check: due now`,
+    );
+  }
   if (!aiHealthy && settings.aiFailingSince) {
     lines.push(`   <i>failing since ${ago(settings.aiFailingSince)}</i>`);
     if (settings.aiLastError) lines.push(`   <i>${escapeHtml(settings.aiLastError.slice(0, 120))}</i>`);

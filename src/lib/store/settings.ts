@@ -62,3 +62,18 @@ export async function recordCycleDuration(db: Db, durationMs: number): Promise<v
     .collection<SettingsDoc>(COLLECTIONS.settings)
     .updateOne({ _id: "global" }, { $set: { lastCycleDurationMs: durationMs } });
 }
+
+/** Record when the AI may next be called, and the current failure streak. */
+export async function saveClassifySchedule(
+  db: Db,
+  nextClassifyAt: Date,
+  aiConsecutiveFailures: number,
+): Promise<void> {
+  await db
+    .collection<SettingsDoc>(COLLECTIONS.settings)
+    .updateOne(
+      { _id: "global" },
+      { $set: { nextClassifyAt, aiConsecutiveFailures }, $setOnInsert: { paused: false, updatedAt: new Date() } },
+      { upsert: true },
+    );
+}

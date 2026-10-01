@@ -91,12 +91,50 @@ export async function claimPending(
         attempts: { $lt: MAX_ATTEMPTS },
       },
       { $set: { statusAt: now }, $inc: { attempts: 1 } },
-      { sort: { fetchedAt: 1 }, returnDocument: "after" },
+      // NEWEST FIRST. Oldest-first sounds fair but is wrong for news: after any
+      // stall, every fresh story queued behind hours of stale ones, and they
+      // all went out together as a burst. Older items cannot starve forever —
+      // expireStale() retires anything past MAX_ALERT_AGE_HOURS.
+      { sort: { fetchedAt: -1 }, returnDocument: "after" },
     );
     if (!doc) break;
     claimed.push(doc);
   }
   return claimed;
+}
+
+/**
+ * Retire pending stories too old to be worth posting.
+ *
+ * Age is measured from publication when the feed gave a date, otherwise from
+ * when we first saw the story. Retired items are marked rejected with reason
+ * "stale" (not deleted), so they stay inspectable until the TTL reaps them, and
+ * seen_items still stops them from being picked up again.
+ */
+export async function expireStale(
+  db: Db,
+  maxAgeHours: number,
+  now: Date = new Date(),
+): Promise<number> {
+  const cutoff = new Date(now.getTime() - maxAgeHours * 60 * 60 * 1000);
+  const res = await db.collection<CandidateDoc>(COLLECTIONS.candidates).updateMany(
+    {
+      status: "pending",
+      $or: [
+        { publishedAt: { $lt: cutoff } },
+        { publishedAt: null, fetchedAt: { $lt: cutoff } },
+      ],
+    },
+    {
+      $set: {
+        status: "rejected",
+        statusAt: now,
+        rejectedReason: `stale: older than ${maxAgeHours}h before it could be classified`,
+        expiresAt: new Date(now.getTime() + REJECTED_TTL_MS),
+      },
+    },
+  );
+  return res.modifiedCount;
 }
 
 /** How many items are waiting, for /status and the daily summary. */
