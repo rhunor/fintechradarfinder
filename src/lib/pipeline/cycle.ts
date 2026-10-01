@@ -26,7 +26,7 @@
 import type { Db } from "mongodb";
 // Side-effect import: installs the keep-alive HTTP pool before any fetch runs.
 import "@/lib/http";
-import { ENABLED_SOURCES, type SourceConfig } from "@/config/sources";
+import { ENABLED_SOURCES, getSource, type SourceConfig } from "@/config/sources";
 import { eventConfig, isEventEnabled } from "@/config/events";
 import { env, limits } from "@/lib/env";
 import { log, errorInfo } from "@/lib/log";
@@ -370,6 +370,9 @@ async function classifyAndAlert(
     let articleText: string | null = null;
     if (
       needsArticleFetch(doc) &&
+      // Paywalled sources opt out: fetching their article page would only
+      // return the paywall, costing wall time for nothing.
+      getSource(doc.sourceId)?.fetchArticle !== false &&
       fetches < limits.maxArticleFetchesPerCycle &&
       deadline.remaining() > 8_000
     ) {

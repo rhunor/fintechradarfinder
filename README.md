@@ -366,38 +366,50 @@ days, and Telegram update records after 1 day. Real usage is a few MB.
 
 ## Sources
 
-19 feeds, all official RSS/Atom. No HTML scraping, no paywall circumvention.
+44 feeds, all official RSS/Atom. No HTML scraping, no paywall circumvention.
+Each was fetched and verified before being added, and its conditional-GET
+support was measured — several publishers advertise an ETag but never answer
+304, and those are marked `body-hash` rather than trusted.
 
-**Newswires (60s)** — PR Newswire ×4 (fintech, M&A, venture capital, banking),
-GlobeNewswire ×3 (M&A, fintech, financing agreements)
+**Newswires (60s)** — PR Newswire ×4, GlobeNewswire ×3. **CNW** (Canadian
+wire) every 2 minutes.
 
 **Regulatory (180s)** — SEC EDGAR 8-K, SEC EDGAR Form D
 
-**Trade press (180s)** — TechCrunch Fintech, Crunchbase News, Finextra, PYMNTS,
-Crowdfund Insider, Banking Dive, Payments Dive, Tearsheet
+**Fintech and deals press (3-5 min)** — TechCrunch Fintech, Crunchbase News,
+Finextra, PYMNTS, Crowdfund Insider, Banking Dive, Payments Dive, Tearsheet,
+PE Hub, Fintech Futures, Global Fintech Series, American Banker, National
+Mortgage News, Coverager
 
-**Canada (180s)** — BetaKit, Financial Post
+**Canada (3-10 min)** — BetaKit, Financial Post, Fintech.ca, The Logic,
+CFOtech Canada, Globe and Mail Business, MaRS, Insurance Business Canada
+
+**Broad coverage (10 min)** — Fortune, Bloomberg Technology, Sifted, Insurance
+Journal, Digital Insurance, Insurance Business US, InvestmentNews,
+WealthManagement.com, CoinDesk, The Block, Fintech Business Weekly, Product Hunt
+
+Generalist and high-volume sources are polled every 10 minutes because a
+relevant story is rare there and every source adds fetch work to every cycle.
+
+**Paywalled publishers** (American Banker, The Logic, Fortune, Bloomberg, Globe
+and Mail) set `fetchArticle: false`: only the headline and summary the publisher
+puts in its own feed are used, and the article page is never requested.
 
 ### Sources that were researched and rejected
 
-These are recorded in `REJECTED_SOURCES` in `src/config/sources.ts` so nobody
-re-adds a dead feed in six months:
+Recorded in `REJECTED_SOURCES` in `src/config/sources.ts` with the reason for
+each, so nobody re-adds a dead feed later. In short:
 
-| Source | Why |
-|---|---|
-| Business Wire | All public RSS channels return a stub: *"The RSS channel you requested was deactivated by the administrator."* |
-| Newsfile Corp | 404 on every documented path; others return a bot challenge with no feed body |
-| Fintech Futures | 403 to any non-browser User-Agent. Reading it would mean spoofing a browser |
-| FinSMEs | 403 to a descriptive User-Agent |
-| ACCESSWIRE | 403 |
-| PR Newswire Canada (CNW) | 404 on the RSS index and every list path |
-
-Losing Business Wire is a genuine coverage gap for US fintech press releases.
-GlobeNewswire and PR Newswire cover much of the same ground, but not all of it.
-
-**A note on BetaKit**: its own `/category/fintech/feed/` and
-`/category/funding/feed/` are both abandoned — newest items date from 2024. The
-main feed is live, so we poll that and filter on each item's categories.
+- **Block a descriptive User-Agent (403):** Business Wire, FinSMEs, ACCESSWIRE,
+  The Financial Brand, Auto Finance News, Bank Automation News, ThinkAdvisor,
+  PitchBook. Reading them would mean pretending to be a browser.
+- **No public feed:** Forbes (section feeds 404), Reuters (discontinued), FT
+  (paywalled), The Paypers, The Future Nexus, This Week in Fintech, Newsfile.
+- **Stale:** the WSJ feed's newest item is about 20 months old.
+- **Not news, would need scraping:** Y Combinator Launches/Companies,
+  Wellfound, Techstars portfolio.
+- **Rate limited at test time:** VentureBeat (429) — worth re-testing.
+- **Paid newsletter:** Axios Pro Rata.
 
 ### Why SEC is polled every 180s, not 60s
 

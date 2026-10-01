@@ -44,6 +44,14 @@ export interface SourceConfig {
    * the network is busy.
    */
   timeoutMs?: number;
+  /**
+   * Set false for paywalled publishers. When a feed summary is too thin the
+   * pipeline normally fetches the article page for more text; for a paywalled
+   * site that returns only the paywall, which wastes wall time and edges toward
+   * the "never bypass a paywall" rule. The feed's own headline and summary are
+   * what the publisher chose to make public, and that is all we use.
+   */
+  fetchArticle?: boolean;
   /** Optional note explaining a non-obvious choice. */
   note?: string;
 }
@@ -71,6 +79,16 @@ const WIRE_INTERVAL = 60;
 const SEC_INTERVAL = 180;
 /** Media sites republish with a lag; 3 minutes is plenty and saves CPU. */
 const MEDIA_INTERVAL = 180;
+
+/**
+ * Sources added in the second expansion are polled less often than the
+ * originals. Every source adds fetch work to every cycle, and Active CPU is
+ * the Vercel meter with the least headroom. Fintech-focused and deal-focused
+ * publications get 5 minutes; generalist or high-volume ones, where a relevant
+ * story is rare, get 10.
+ */
+const FOCUSED_INTERVAL = 300;
+const BROAD_INTERVAL = 600;
 
 export const SOURCES: readonly SourceConfig[] = [
   // ---------------------------------------------------------------------
@@ -292,6 +310,277 @@ export const SOURCES: readonly SourceConfig[] = [
     enabled: true,
     note: "Sends an ETag but answers If-None-Match with 200 anyway, so validators are useless here.",
   },
+  // ---------------------------------------------------------------------
+  // Second expansion (Oct 2026). Every entry verified: official RSS/Atom,
+  // recent items, and conditional-GET support measured rather than assumed —
+  // several advertise an ETag but never answer 304, and are marked body-hash.
+  // ---------------------------------------------------------------------
+  {
+    id: "cnw",
+    name: "CNW (PR Newswire Canada)",
+    url: "https://www.newswire.ca/rss/news-releases/news-releases-list.rss",
+    type: "rss",
+    regionHint: "CA",
+    minIntervalSeconds: 120,
+    conditionalGet: "etag",
+    enabled: true,
+    note: "Canadian newswire. Its old list paths 404'd; this one works and fills the Canadian wire gap.",
+  },
+  {
+    id: "pe-hub",
+    name: "PE Hub",
+    url: "https://www.pehub.com/feed/",
+    type: "rss",
+    regionHint: "US+CA",
+    minIntervalSeconds: FOCUSED_INTERVAL,
+    conditionalGet: "etag",
+    enabled: true,
+  },
+  {
+    id: "fintech-futures",
+    name: "Fintech Futures",
+    url: "https://www.fintechfutures.com/rss.xml",
+    type: "rss",
+    regionHint: "global",
+    minIntervalSeconds: FOCUSED_INTERVAL,
+    conditionalGet: "body-hash",
+    enabled: true,
+    note: "Previously rejected: /feed/ answered 403. /rss.xml works. Sends Last-Modified but never 304s.",
+  },
+  {
+    id: "global-fintech-series",
+    name: "Global Fintech Series",
+    url: "https://globalfintechseries.com/feed/",
+    type: "rss",
+    regionHint: "global",
+    minIntervalSeconds: FOCUSED_INTERVAL,
+    conditionalGet: "body-hash",
+    enabled: true,
+    note: "Sends an ETag but answers 200 to If-None-Match.",
+  },
+  {
+    id: "fintech-ca",
+    name: "Fintech.ca",
+    url: "https://www.fintech.ca/feed/",
+    type: "rss",
+    regionHint: "CA",
+    minIntervalSeconds: FOCUSED_INTERVAL,
+    conditionalGet: "etag",
+    enabled: true,
+  },
+  {
+    id: "american-banker",
+    name: "American Banker",
+    url: "https://www.americanbanker.com/feed?rss=true",
+    type: "rss",
+    regionHint: "US",
+    minIntervalSeconds: FOCUSED_INTERVAL,
+    conditionalGet: "body-hash",
+    enabled: true,
+    fetchArticle: false,
+    note: "Paywalled: only the feed's own headline and summary are used.",
+  },
+  {
+    id: "the-logic",
+    name: "The Logic",
+    url: "https://thelogic.co/feed/",
+    type: "rss",
+    regionHint: "CA",
+    minIntervalSeconds: FOCUSED_INTERVAL,
+    conditionalGet: "etag",
+    enabled: true,
+    fetchArticle: false,
+    note: "Paywalled Canadian tech and business news.",
+  },
+  {
+    id: "national-mortgage-news",
+    name: "National Mortgage News",
+    url: "https://www.nationalmortgagenews.com/feed?rss=true",
+    type: "rss",
+    regionHint: "US",
+    minIntervalSeconds: FOCUSED_INTERVAL,
+    conditionalGet: "body-hash",
+    enabled: true,
+  },
+  {
+    id: "coverager",
+    name: "Coverager",
+    url: "https://coverager.com/feed/",
+    type: "rss",
+    regionHint: "global",
+    minIntervalSeconds: FOCUSED_INTERVAL,
+    conditionalGet: "etag",
+    enabled: true,
+  },
+  {
+    id: "dig-in",
+    name: "Digital Insurance",
+    url: "https://www.dig-in.com/feed?rss=true",
+    type: "rss",
+    regionHint: "US",
+    minIntervalSeconds: BROAD_INTERVAL,
+    conditionalGet: "body-hash",
+    enabled: true,
+  },
+  {
+    id: "cfotech-ca",
+    name: "CFOtech Canada",
+    url: "https://cfotech.ca/feed",
+    type: "rss",
+    regionHint: "CA",
+    minIntervalSeconds: BROAD_INTERVAL,
+    conditionalGet: "etag",
+    enabled: true,
+  },
+  {
+    id: "fortune",
+    name: "Fortune",
+    url: "https://fortune.com/feed/fortune-feeds/?id=3230629",
+    type: "rss",
+    regionHint: "US",
+    minIntervalSeconds: BROAD_INTERVAL,
+    conditionalGet: "etag",
+    enabled: true,
+    fetchArticle: false,
+  },
+  {
+    id: "bloomberg-tech",
+    name: "Bloomberg Technology",
+    url: "https://feeds.bloomberg.com/technology/news.rss",
+    type: "rss",
+    regionHint: "global",
+    minIntervalSeconds: BROAD_INTERVAL,
+    conditionalGet: "etag",
+    enabled: true,
+    fetchArticle: false,
+    note: "Bloomberg's official public feed. The site is paywalled; feed text only.",
+  },
+  {
+    id: "globe-and-mail",
+    name: "The Globe and Mail · Business",
+    url: "https://www.theglobeandmail.com/arc/outboundfeeds/rss/category/business/",
+    type: "rss",
+    regionHint: "CA",
+    minIntervalSeconds: BROAD_INTERVAL,
+    conditionalGet: "body-hash",
+    enabled: true,
+    fetchArticle: false,
+  },
+  {
+    id: "sifted",
+    name: "Sifted",
+    url: "https://sifted.eu/feed",
+    type: "rss",
+    regionHint: "global",
+    minIntervalSeconds: BROAD_INTERVAL,
+    conditionalGet: "last-modified",
+    enabled: true,
+    note: "European startup news. Most items fail the US/Canada rule; kept for European fintechs expanding to North America.",
+  },
+  {
+    id: "insurance-journal",
+    name: "Insurance Journal",
+    url: "https://www.insurancejournal.com/feed/",
+    type: "rss",
+    regionHint: "US",
+    minIntervalSeconds: BROAD_INTERVAL,
+    conditionalGet: "body-hash",
+    enabled: true,
+  },
+  {
+    id: "ibamag-us",
+    name: "Insurance Business (US)",
+    url: "https://www.ibamag.com/us/rss/",
+    type: "rss",
+    regionHint: "US",
+    minIntervalSeconds: BROAD_INTERVAL,
+    conditionalGet: "body-hash",
+    enabled: true,
+    note: "High volume (~160 items), mostly brokerage news; the classifier does the filtering.",
+  },
+  {
+    id: "ibamag-ca",
+    name: "Insurance Business (Canada)",
+    url: "https://www.ibamag.com/ca/rss/",
+    type: "rss",
+    regionHint: "CA",
+    minIntervalSeconds: BROAD_INTERVAL,
+    conditionalGet: "body-hash",
+    enabled: true,
+  },
+  {
+    id: "investmentnews",
+    name: "InvestmentNews",
+    url: "https://www.investmentnews.com/rss",
+    type: "rss",
+    regionHint: "US",
+    minIntervalSeconds: BROAD_INTERVAL,
+    conditionalGet: "body-hash",
+    enabled: true,
+  },
+  {
+    id: "wealthmanagement",
+    name: "WealthManagement.com",
+    url: "https://www.wealthmanagement.com/rss.xml",
+    type: "rss",
+    regionHint: "US",
+    minIntervalSeconds: BROAD_INTERVAL,
+    conditionalGet: "body-hash",
+    enabled: true,
+    note: "Sends Last-Modified but never answers 304.",
+  },
+  {
+    id: "coindesk",
+    name: "CoinDesk",
+    url: "https://www.coindesk.com/arc/outboundfeeds/rss/",
+    type: "rss",
+    regionHint: "global",
+    minIntervalSeconds: BROAD_INTERVAL,
+    conditionalGet: "body-hash",
+    enabled: true,
+  },
+  {
+    id: "the-block",
+    name: "The Block",
+    url: "https://www.theblock.co/rss.xml",
+    type: "rss",
+    regionHint: "global",
+    minIntervalSeconds: BROAD_INTERVAL,
+    conditionalGet: "etag",
+    enabled: true,
+  },
+  {
+    id: "fintech-business-weekly",
+    name: "Fintech Business Weekly",
+    url: "https://fintechbusinessweekly.substack.com/feed",
+    type: "rss",
+    regionHint: "US",
+    minIntervalSeconds: BROAD_INTERVAL,
+    conditionalGet: "etag",
+    enabled: true,
+    note: "Weekly newsletter; a 640KB feed, but it answers 304 so the body rarely transfers.",
+  },
+  {
+    id: "mars",
+    name: "MaRS Discovery District",
+    url: "https://www.marsdd.com/feed/",
+    type: "rss",
+    regionHint: "CA",
+    minIntervalSeconds: BROAD_INTERVAL,
+    conditionalGet: "etag",
+    enabled: true,
+  },
+  {
+    id: "product-hunt",
+    name: "Product Hunt",
+    url: "https://www.producthunt.com/feed/",
+    type: "rss",
+    regionHint: "global",
+    minIntervalSeconds: BROAD_INTERVAL,
+    conditionalGet: "etag",
+    enabled: true,
+    note: "Every product launch across tech; only fintech ones survive the classifier.",
+  },
 ];
 
 /**
@@ -299,36 +588,27 @@ export const SOURCES: readonly SourceConfig[] = [
  * re-adds a dead feed in six months, and so the README can explain the gaps.
  */
 export const REJECTED_SOURCES: readonly { name: string; url: string; reason: string }[] = [
-  {
-    name: "Business Wire (all channels)",
-    url: "https://feed.businesswire.com/rss/home/",
-    reason: "Returns a 951-byte stub: 'The RSS channel you requested was deactivated by the administrator.'",
-  },
-  {
-    name: "Newsfile Corp",
-    url: "https://www.newsfilecorp.com/rss/all",
-    reason: "HTTP 404 on every documented path; other paths answer 202 with a bot challenge and no feed body.",
-  },
-  {
-    name: "Fintech Futures",
-    url: "https://www.fintechfutures.com/feed/",
-    reason: "HTTP 403 to any non-browser User-Agent. Reading it would mean spoofing a browser, which we do not do.",
-  },
-  {
-    name: "FinSMEs",
-    url: "https://www.finsmes.com/feed",
-    reason: "HTTP 403 to a descriptive User-Agent.",
-  },
-  {
-    name: "ACCESSWIRE",
-    url: "https://www.accesswire.com/users/newsroom/rss",
-    reason: "HTTP 403.",
-  },
-  {
-    name: "PR Newswire Canada (CNW)",
-    url: "https://www.newswire.ca/rss/",
-    reason: "HTTP 404 on the RSS index and every list path. Canadian coverage comes from BetaKit and Financial Post instead.",
-  },
+  { name: "Business Wire", url: "https://www.businesswire.com", reason: "Public RSS channels were deactivated; the site now answers 403 to a descriptive User-Agent." },
+  { name: "FinSMEs", url: "https://www.finsmes.com/feed", reason: "HTTP 403 on both the site and its feed." },
+  { name: "ACCESSWIRE", url: "https://www.accesswire.com", reason: "HTTP 403." },
+  { name: "Newsfile Corp", url: "https://www.newsfilecorp.com", reason: "No feed: documented paths return HTML or 404." },
+  { name: "The Financial Brand", url: "https://thefinancialbrand.com/feed/", reason: "HTTP 403 to a descriptive User-Agent." },
+  { name: "Auto Finance News", url: "https://www.autofinancenews.net/feed/", reason: "HTTP 403." },
+  { name: "Bank Automation News", url: "https://bankautomationnews.com/feed/", reason: "HTTP 403." },
+  { name: "ThinkAdvisor", url: "https://www.thinkadvisor.com/feed/", reason: "HTTP 403." },
+  { name: "PitchBook News", url: "https://pitchbook.com/news/rss", reason: "HTTP 403." },
+  { name: "Forbes", url: "https://www.forbes.com/fintech/feed/", reason: "No working public section feed: /fintech/feed/ and /money/feed/ return 404." },
+  { name: "Reuters", url: "https://www.reuters.com", reason: "Public RSS discontinued; site returns 401." },
+  { name: "Wall Street Journal", url: "https://feeds.a.dj.com/rss/RSSMarketsMain.xml", reason: "The official feed still answers but its newest item is about 20 months old." },
+  { name: "Financial Times", url: "https://www.ft.com", reason: "Fully paywalled with no reachable public feed." },
+  { name: "VentureBeat", url: "https://venturebeat.com/feed/", reason: "HTTP 429 (rate limited) at time of testing. Worth re-testing later." },
+  { name: "The Paypers", url: "https://thepaypers.com", reason: "No feed: /rss and /rss.xml return HTML." },
+  { name: "The Future Nexus", url: "https://thefuturenexus.com", reason: "No feed: /feed/ returns a JavaScript app page." },
+  { name: "This Week in Fintech", url: "https://thisweekinfintech.com", reason: "No feed found at the standard paths." },
+  { name: "Axios Pro Rata", url: "https://www.axios.com/newsletters/axios-pro-rata", reason: "Paid newsletter; HTTP 403." },
+  { name: "Y Combinator Launches / Companies", url: "https://www.ycombinator.com/launches", reason: "Directory pages with no feed; reading them would mean scraping. YC's blog feed is ~3 months stale." },
+  { name: "Wellfound", url: "https://wellfound.com", reason: "Startup directory with no feed; would require scraping." },
+  { name: "Techstars portfolio", url: "https://www.techstars.com/portfolio", reason: "Directory with no feed; did not respond to a descriptive User-Agent." },
 ];
 
 export const ENABLED_SOURCES = SOURCES.filter((s) => s.enabled);
