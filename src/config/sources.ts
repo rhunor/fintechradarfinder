@@ -220,6 +220,17 @@ export const SOURCES: readonly SourceConfig[] = [
     enabled: true,
   },
   {
+    id: "tech-funding-news",
+    name: "Tech Funding News",
+    url: "https://techfundingnews.com/feed/",
+    type: "rss",
+    regionHint: "global",
+    minIntervalSeconds: MEDIA_INTERVAL,
+    conditionalGet: "last-modified",
+    enabled: true,
+    note: "Funding rounds, Europe-heavy; the classifier keeps the US/CA ones. Only 10 items (~2 days) per feed, ample at 3 minutes.",
+  },
+  {
     id: "finextra",
     name: "Finextra",
     url: "https://www.finextra.com/rss/headlines.aspx",
@@ -586,6 +597,20 @@ export const SOURCES: readonly SourceConfig[] = [
     enabled: true,
     note: "Every product launch across tech; only fintech ones survive the classifier.",
   },
+  {
+    id: "axios",
+    name: "Axios",
+    url: "https://www.axios.com/feeds/feed.rss",
+    type: "rss",
+    regionHint: "US",
+    minIntervalSeconds: MEDIA_INTERVAL,
+    conditionalGet: "last-modified",
+    enabled: true,
+    note:
+      "Axios's advertised public feed; 301s to api.axios.com/feed/, which answers 304 to If-Modified-Since. " +
+      "Top stories across all desks (~12/day, mostly politics), so the prefilter drops most of it. " +
+      "The CDN caches it for 180s, so polling faster would only re-read the same copy.",
+  },
 ];
 
 /**
@@ -610,7 +635,7 @@ export const REJECTED_SOURCES: readonly { name: string; url: string; reason: str
   { name: "The Paypers", url: "https://thepaypers.com", reason: "No feed: /rss and /rss.xml return HTML." },
   { name: "The Future Nexus", url: "https://thefuturenexus.com", reason: "No feed: /feed/ returns a JavaScript app page." },
   { name: "This Week in Fintech", url: "https://thisweekinfintech.com", reason: "No feed found at the standard paths." },
-  { name: "Axios Pro Rata", url: "https://www.axios.com/newsletters/axios-pro-rata", reason: "Paid newsletter; HTTP 403." },
+  { name: "Axios Pro Rata", url: "https://www.axios.com/newsletters/axios-pro-rata", reason: "Paid newsletter; HTTP 403. Axios's free top-stories feed is enabled separately as `axios`." },
   { name: "Y Combinator Launches / Companies", url: "https://www.ycombinator.com/launches", reason: "Directory pages with no feed; reading them would mean scraping. YC's blog feed is ~3 months stale." },
   { name: "Wellfound", url: "https://wellfound.com", reason: "Startup directory with no feed; would require scraping." },
   { name: "Techstars portfolio", url: "https://www.techstars.com/portfolio", reason: "Directory with no feed; did not respond to a descriptive User-Agent." },

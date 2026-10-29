@@ -380,7 +380,7 @@ are days stale from the US.
 **Regulatory (180s)** — SEC EDGAR 8-K, SEC EDGAR Form D
 
 **Fintech and deals press (3-5 min)** — TechCrunch Fintech, Crunchbase News,
-Finextra, PYMNTS, Crowdfund Insider, Banking Dive, Payments Dive, Tearsheet,
+Tech Funding News, Finextra, PYMNTS, Crowdfund Insider, Banking Dive, Payments Dive, Tearsheet,
 PE Hub, Fintech Futures, Global Fintech Series, American Banker, National
 Mortgage News, Coverager
 
@@ -389,7 +389,9 @@ CFOtech Canada, Globe and Mail Business, MaRS, Insurance Business Canada
 
 **Broad coverage (10 min)** — Fortune, Bloomberg Technology, Sifted, Insurance
 Journal, Digital Insurance, Insurance Business US, InvestmentNews,
-WealthManagement.com, CoinDesk, The Block, Fintech Business Weekly, Product Hunt
+WealthManagement.com, CoinDesk, The Block, Fintech Business Weekly, Product Hunt.
+Axios is also broad but polled every 3 minutes: it answers 304 when nothing
+changed, so frequent checks are cheap, and its CDN refreshes every 180s anyway.
 
 Generalist and high-volume sources are polled every 10 minutes because a
 relevant story is rare there and every source adds fetch work to every cycle.
@@ -412,7 +414,7 @@ each, so nobody re-adds a dead feed later. In short:
 - **Not news, would need scraping:** Y Combinator Launches/Companies,
   Wellfound, Techstars portfolio.
 - **Rate limited at test time:** VentureBeat (429) — worth re-testing.
-- **Paid newsletter:** Axios Pro Rata.
+- **Paid newsletter:** Axios Pro Rata (Axios's free top-stories feed is enabled).
 
 ### Why SEC is polled every 180s, not 60s
 
